@@ -6,7 +6,7 @@ import (
 	"os/signal"
 	"syscall"
 
-	"echonet-lite/internal/cli"
+	"github.com/otknoy/echonet-lite/internal/cli"
 )
 
 func main() {

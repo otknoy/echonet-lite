@@ -6,7 +6,7 @@ import (
 	"errors"
 	"fmt"
 
-	"echonet-lite/echonet"
+	"github.com/otknoy/echonet-lite/echonet"
 )
 
 const (

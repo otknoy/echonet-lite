@@ -6,7 +6,7 @@ import (
 	"net/netip"
 	"testing"
 
-	"echonet-lite/echonet"
+	"github.com/otknoy/echonet-lite/echonet"
 )
 
 type virtualAC struct {

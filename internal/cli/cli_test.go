@@ -9,8 +9,8 @@ import (
 	"strings"
 	"testing"
 
-	"echonet-lite/aircon"
-	"echonet-lite/echonet"
+	"github.com/otknoy/echonet-lite/aircon"
+	"github.com/otknoy/echonet-lite/echonet"
 )
 
 type fakeSession struct {

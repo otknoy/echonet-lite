@@ -3,6 +3,15 @@
 ECHONET Lite 対応エアコンの情報取得・操作を行う Go ライブラリと CLI の試作です。
 Linux / Go 1.25 以降で動作し、外部依存はありません。
 
+## インストール
+
+```sh
+go install github.com/otknoy/echonet-lite/cmd/echonet@latest
+echonet --help
+```
+
+インストール先は `GOBIN`、未設定なら `$(go env GOPATH)/bin` です。そのディレクトリを `PATH` に追加してください。
+
 ## CLI
 
 ```sh
@@ -49,7 +58,7 @@ err = ac.SetMode(ctx, aircon.Cool)
 err = ac.SetTemperature(ctx, 26)
 ```
 
-インポートは `echonet-lite/echonet` と `echonet-lite/aircon` です。モジュールパスは公開前の仮の名称です。
+インポートは `github.com/otknoy/echonet-lite/echonet` と `github.com/otknoy/echonet-lite/aircon` です。
 `Status` は項目ごとの結果とエラーを返します。高レイヤーは操作の都度プロパティマップを取得し、対応可否を確認します。
 `errors.As` で `*echonet.ServiceError`・`*echonet.SettingUnknownError` を、`errors.Is` で context の期限・キャンセルを判別できます。
 
