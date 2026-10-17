@@ -1,7 +1,7 @@
 # echonet-lite
 
 ECHONET Lite 対応エアコンの情報取得・操作を行う Go ライブラリと CLI の試作です。
-Linux / Go 1.25 以降で動作し、外部依存はありません。
+Linux / Go 1.25 以降で動作します。
 
 ## CLI のインストール
 
@@ -47,6 +47,48 @@ echonet aircon status --interface eth0 --host 192.168.1.10 --eoj 013001 --format
 未対応と取得失敗は区別し、値がない場合は `null` にします。
 終了コードは成功 `0`、通信失敗・不可応答 `1`、引数不正 `2` です。部分失敗でも取得できた値は出力します。
 設定成功は `accepted`（受理）と表示し、設定応答がない場合は結果不明として終了します。自動再送はしません。
+
+## 設定ファイル
+
+次のコマンドで対話式に設定し、`~/.config/echonet/config.yaml` に保存します。既存ファイルを作り直す場合は `echonet config init --force` を使います。
+
+```sh
+echonet config init
+```
+
+1. ネットワークインターフェース（eth0 など）を選択します。
+2. 探索したエアコンごとに、登録するかを選び、任意の名前を付けます。
+3. 登録した対象から `current_target` を選択します。
+
+番号または名前で選択できます。登録しない場合は interface のみ保存します。途中で中断した場合は保存せず、既存設定も保持します。
+探索時間は `--timeout 5s`、空のひな形だけ作る場合は `--empty` を指定します。
+`XDG_CONFIG_HOME` が設定されている場合は、その配下の `echonet/config.yaml` を使います。
+手動で編集する場合は、[設定サンプル](config.example.yaml)も参照してください。
+
+```yaml
+interface: eth0
+current_target: living
+
+targets:
+  living:
+    host: 192.168.1.10
+    eoj: "013001"
+  bedroom:
+    host: 192.168.1.11
+    eoj: "013001"
+```
+
+```sh
+echonet config list          # 登録済み対象を表示（現在の対象に *）
+echonet config use bedroom   # 切り替え先を保存
+echonet aircon status
+echonet aircon power on
+echonet aircon temperature 26
+```
+
+`--interface` は設定より優先します。`--host`・`--eoj` は両方指定すると今回の操作だけ対象を上書きできます。
+別のファイルを使う場合は、`echonet config use bedroom --config ./config.yaml` のように `--config PATH` を指定してください。
+設定ファイルがなければ、従来どおり引数で指定できます。`discover` は設定の interface のみ利用します。
 
 ## ライブラリ
 

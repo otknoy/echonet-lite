@@ -124,11 +124,23 @@ echonet aircon mode cool --host 192.168.1.10 --eoj 013001
 echonet aircon temperature 26 --host 192.168.1.10 --eoj 013001
 ```
 
-操作対象の IP・EOJ を明示し、同一 IP に複数のエアコンがある場合も区別する。
+操作対象の IP・EOJ は引数または設定の名前付き対象で指定し、同一 IP の複数機器も区別する。
 出力は既定で人向け表示、`--format json` で JSON とする。診断は標準エラーへ出す。
 終了コードは成功 `0`、引数不正 `2`、通信失敗・不可応答 `1`。
 情報の一部が取得できない場合は取得済みの値と項目ごとの理由を表示する。
 任意項目の未対応は正常終了、通信失敗・不可応答による欠落は終了コード `1` とする。
+
+## CLI 設定
+
+YAML に共通の `interface`、名前付きの `targets`（host・EOJ の組）、`current_target` を保存する。
+既定パスは `os.UserConfigDir()/echonet/config.yaml` とし、`--config PATH` で指定できる。
+`config init` は NIC 選択 → エアコン探索 → 登録可否と命名 → current_target 選択を対話式に行う。
+完了後に親ディレクトリと設定を作成し、既存ファイルは `--force` 指定時のみ完了後に置き換える。中断・探索失敗時は元の設定を保持する。
+`--empty` で空のひな形のみ作成できる。登録なしの場合は NIC のみ保存する。
+`config list` は対象一覧、`config use NAME` は選択先の保存を行い、通信しない。
+引数の interface と host・EOJ の組は設定より優先する。host・EOJ の片方だけの指定は不可。
+保存は YAML のコメントとファイル権限を保持し、一時ファイルから置き換える。
+設定は CLI 内部で扱い、公開ライブラリ API は変更しない。YAML 読み込みには `go.yaml.in/yaml/v3 v3.0.5` を使う。
 
 ## 通信方針
 

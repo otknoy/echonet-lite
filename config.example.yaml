@@ -1,0 +1,13 @@
+# 共通のネットワークインターフェース
+interface: eth0
+
+# 操作対象（echonet config use NAME で変更）
+current_target: living
+
+targets:
+  living:
+    host: 192.168.1.10
+    eoj: "013001"
+  bedroom:
+    host: 192.168.1.11
+    eoj: "013001"

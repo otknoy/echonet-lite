@@ -9,21 +9,27 @@ import (
 	"fmt"
 	"io"
 	"net/netip"
+	"os"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/otknoy/echonet-lite/aircon"
 	"github.com/otknoy/echonet-lite/echonet"
+	"github.com/otknoy/echonet-lite/internal/config"
 )
 
 const usage = `Usage:
   echonet aircon discover [--interface eth0] [--timeout 3s] [--format json]
-  echonet aircon status --host IP --eoj 013001
-  echonet aircon power on|off --host IP --eoj 013001
-  echonet aircon mode auto|cool|heat|dry|fan --host IP --eoj 013001
-  echonet aircon temperature 26 --host IP --eoj 013001
-All commands accept --interface, --timeout, --format text|json.
+  echonet aircon status [--host IP --eoj 013001]
+  echonet aircon power on|off [--host IP --eoj 013001]
+  echonet aircon mode auto|cool|heat|dry|fan [--host IP --eoj 013001]
+  echonet aircon temperature 26 [--host IP --eoj 013001]
+  echonet config init [--config PATH] [--timeout 3s] [--empty] [--force]
+  echonet config list [--config PATH]
+  echonet config use NAME [--config PATH]
+Aircon commands accept --interface, --timeout, --format text|json, --config PATH.
+Without --host and --eoj, aircon commands use the configured current_target.
 `
 
 type airconControl interface {
@@ -47,15 +53,23 @@ type opener func(echonet.Options) (session, error)
 
 // Run returns an exit code; help and invalid arguments never open a socket.
 func Run(ctx context.Context, args []string, out, diagnostics io.Writer) int {
-	return run(ctx, args, out, diagnostics, func(o echonet.Options) (session, error) {
+	return RunWithInput(ctx, args, os.Stdin, out, diagnostics)
+}
+
+// RunWithInput accepts an input stream for interactive setup.
+func RunWithInput(ctx context.Context, args []string, input io.Reader, out, diagnostics io.Writer) int {
+	return runWithInput(ctx, args, input, out, diagnostics, func(o echonet.Options) (session, error) {
 		c, err := echonet.Open(o)
 		if err != nil {
 			return nil, err
 		}
 		return clientSession{c}, nil
-	})
+	}, availableInterfaces)
 }
 func run(ctx context.Context, args []string, out, diagnostics io.Writer, open opener) int {
+	return runWithInput(ctx, args, strings.NewReader(""), out, diagnostics, open, availableInterfaces)
+}
+func runWithInput(ctx context.Context, args []string, input io.Reader, out, diagnostics io.Writer, open opener, interfaces interfaceLister) int {
 	// Diagnostic write failures cannot be reported to another output stream.
 	report := func(err error) { _, _ = fmt.Fprintln(diagnostics, err) }
 	bad := func(err error) int { report(err); return 2 }
@@ -66,8 +80,11 @@ func run(ctx context.Context, args []string, out, diagnostics io.Writer, open op
 		}
 		return 0
 	}
+	if args[0] == "config" {
+		return runConfig(ctx, args[1:], input, out, diagnostics, open, interfaces)
+	}
 	if len(args) < 2 || args[0] != "aircon" {
-		return bad(fmt.Errorf("expected aircon subcommand"))
+		return bad(fmt.Errorf("expected aircon or config subcommand"))
 	}
 	command := args[1]
 	rest := args[2:]
@@ -85,6 +102,7 @@ func run(ctx context.Context, args []string, out, diagnostics io.Writer, open op
 	}
 	fs := flag.NewFlagSet(command, flag.ContinueOnError)
 	fs.SetOutput(diagnostics)
+	configPath := fs.String("config", "", "configuration file")
 	iface := fs.String("interface", "", "IPv4 interface")
 	timeout := fs.Duration("timeout", 3*time.Second, "request or discovery timeout")
 	format := fs.String("format", "text", "text or json")
@@ -105,23 +123,44 @@ func run(ctx context.Context, args []string, out, diagnostics io.Writer, open op
 	if *format != "text" && *format != "json" {
 		return bad(fmt.Errorf("format must be text or json"))
 	}
+
+	specified := make(map[string]bool)
+	fs.Visit(func(f *flag.Flag) { specified[f.Name] = true })
+	if specified["config"] && *configPath == "" {
+		return bad(fmt.Errorf("--config requires a path"))
+	}
+	if specified["host"] != specified["eoj"] {
+		return bad(fmt.Errorf("--host and --eoj must be specified together"))
+	}
+	if command == "discover" && (specified["host"] || specified["eoj"]) {
+		return bad(fmt.Errorf("discover does not accept host or eoj"))
+	}
+	doc, err := loadConfig(*configPath, specified["config"])
+	if err != nil {
+		return bad(err)
+	}
+	var cfg config.Config
+	if doc != nil {
+		cfg = doc.Config
+	}
+	if !specified["interface"] {
+		*iface = cfg.Interface
+	}
 	var address netip.Addr
 	var eoj echonet.EOJ
 	var mode aircon.Mode
 	var temperature int
-	var err error
-	if command == "discover" {
-		if *host != "" || *eojText != "" {
-			return bad(fmt.Errorf("discover does not accept host or eoj"))
+	if command != "discover" {
+		target := config.Target{Host: *host, EOJ: *eojText}
+		if !specified["host"] {
+			target, err = cfg.Selected()
+			if err != nil {
+				return bad(err)
+			}
 		}
-	} else {
-		address, err = netip.ParseAddr(*host)
-		if err != nil || !address.Is4() || address.IsUnspecified() || address.IsMulticast() || address == netip.MustParseAddr("255.255.255.255") {
-			return bad(fmt.Errorf("host must be a unicast IPv4 address"))
-		}
-		eoj, err = echonet.ParseEOJ(*eojText)
-		if err != nil || !aircon.IsAircon(eoj) {
-			return bad(fmt.Errorf("eoj must identify a household air conditioner instance (0130xx)"))
+		address, eoj, err = config.ParseTarget(target)
+		if err != nil {
+			return bad(err)
 		}
 	}
 	switch command {
