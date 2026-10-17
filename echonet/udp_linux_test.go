@@ -23,7 +23,11 @@ func TestUDPTransportLoopback(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer server.Close()
+	defer func() {
+		if err := server.Close(); err != nil {
+			t.Error(err)
+		}
+	}()
 	raw, err := server.SyscallConn()
 	if err != nil {
 		t.Fatal(err)
@@ -41,7 +45,11 @@ func TestUDPTransportLoopback(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer sender.Close()
+	defer func() {
+		if err := sender.Close(); err != nil {
+			t.Error(err)
+		}
+	}()
 	iface, err := net.InterfaceByName("lo")
 	if err != nil {
 		t.Fatal(err)

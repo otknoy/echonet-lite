@@ -74,7 +74,14 @@ func newClient(t packetTransport, ip netip.Addr, timeout time.Duration) *Client 
 }
 func (c *Client) Node(address netip.Addr) *Node { return &Node{client: c, address: address.Unmap()} }
 func (c *Client) stop(err error) {
-	c.closeOnce.Do(func() { c.mu.Lock(); c.terminal = err; c.mu.Unlock(); close(c.closed); c.transport.Close() })
+	c.closeOnce.Do(func() {
+		c.mu.Lock()
+		c.terminal = err
+		c.mu.Unlock()
+		close(c.closed)
+		// Preserve the original shutdown cause; socket cleanup cannot recover it.
+		_ = c.transport.Close()
+	})
 }
 func (c *Client) Close() error   { c.stop(ErrClosed); c.workers.Wait(); return nil }
 func (c *Client) failure() error { c.mu.Lock(); defer c.mu.Unlock(); return c.terminal }

@@ -56,9 +56,14 @@ func Run(ctx context.Context, args []string, out, diagnostics io.Writer) int {
 	})
 }
 func run(ctx context.Context, args []string, out, diagnostics io.Writer, open opener) int {
-	bad := func(err error) int { fmt.Fprintln(diagnostics, err); return 2 }
+	// Diagnostic write failures cannot be reported to another output stream.
+	report := func(err error) { _, _ = fmt.Fprintln(diagnostics, err) }
+	bad := func(err error) int { report(err); return 2 }
 	if len(args) == 0 || (len(args) == 1 && (args[0] == "--help" || args[0] == "-h")) {
-		fmt.Fprint(out, usage)
+		if _, err := fmt.Fprint(out, usage); err != nil {
+			report(err)
+			return 1
+		}
 		return 0
 	}
 	if len(args) < 2 || args[0] != "aircon" {
@@ -137,10 +142,11 @@ func run(ctx context.Context, args []string, out, diagnostics io.Writer, open op
 	}
 	client, err := open(echonet.Options{Interface: *iface, Timeout: *timeout})
 	if err != nil {
-		fmt.Fprintln(diagnostics, err)
+		report(err)
 		return 1
 	}
-	defer client.Close()
+	// Client.Close is idempotent and currently always returns nil.
+	defer func() { _ = client.Close() }()
 	emit := func(v any) error {
 		if *format == "json" {
 			return json.NewEncoder(out).Encode(v)
@@ -172,18 +178,18 @@ func run(ctx context.Context, args []string, out, diagnostics io.Writer, open op
 			}
 		}
 		if err != nil {
-			fmt.Fprintln(diagnostics, err)
+			report(err)
 			return 1
 		}
 		if requestErr != nil {
-			fmt.Fprintln(diagnostics, requestErr)
+			report(requestErr)
 			return 1
 		}
 		return 0
 	}
 	ac, err := client.Aircon(address, eoj)
 	if err != nil {
-		fmt.Fprintln(diagnostics, err)
+		report(err)
 		return 1
 	}
 	if command == "status" {
@@ -194,11 +200,11 @@ func run(ctx context.Context, args []string, out, diagnostics io.Writer, open op
 			_, err = fmt.Fprintf(out, "power: %s\nmode: %s\ntemperature: %s\nroom_temperature: %s\n", fieldText(status.Power), fieldText(status.Mode), fieldText(status.Temperature), fieldText(status.RoomTemperature))
 		}
 		if err != nil {
-			fmt.Fprintln(diagnostics, err)
+			report(err)
 			return 1
 		}
 		if requestErr != nil {
-			fmt.Fprintln(diagnostics, requestErr)
+			report(requestErr)
 			return 1
 		}
 		return 0
@@ -212,7 +218,7 @@ func run(ctx context.Context, args []string, out, diagnostics io.Writer, open op
 		err = ac.SetTemperature(ctx, temperature)
 	}
 	if err != nil {
-		fmt.Fprintln(diagnostics, err)
+		report(err)
 		return 1
 	}
 	if *format == "json" {
@@ -223,7 +229,7 @@ func run(ctx context.Context, args []string, out, diagnostics io.Writer, open op
 		err = emit("accepted")
 	}
 	if err != nil {
-		fmt.Fprintln(diagnostics, err)
+		report(err)
 		return 1
 	}
 	return 0

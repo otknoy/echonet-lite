@@ -9,15 +9,16 @@ func (c *Client) localProperties(eoj EOJ) map[EPC][]byte {
 		identity[14+i] ^= value
 	}
 	common := map[EPC][]byte{0x80: {0x30}, 0x81: {0}, 0x88: {0x42}, 0x8a: {0xff, 0xff, 0xff}, 0x83: append([]byte(nil), identity[:]...)}
-	if eoj == nodeEOJ {
+	switch eoj {
+	case nodeEOJ:
 		common[0x82] = []byte{1, 14, 1, 0}
 		common[0xd3] = []byte{0, 0, 1}
 		common[0xd4] = []byte{0, 2}
 		common[0xd6] = []byte{1, 0x05, 0xff, 1}
 		common[0xd7] = []byte{1, 0x05, 0xff}
-	} else if eoj == controllerEOJ {
+	case controllerEOJ:
 		common[0x82] = []byte{0, 0, 'R', 0}
-	} else {
+	default:
 		return nil
 	}
 	common[0x9d] = []byte{1, 0x80}

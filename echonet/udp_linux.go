@@ -63,7 +63,11 @@ func openUDP(name string) (*udpTransport, netip.Addr, error) {
 	if err != nil {
 		return nil, ip, err
 	}
-	fail := func(e error) (*udpTransport, netip.Addr, error) { conn.Close(); return nil, ip, e }
+	fail := func(e error) (*udpTransport, netip.Addr, error) {
+		// Report the setup failure even if cleanup also fails.
+		_ = conn.Close()
+		return nil, ip, e
+	}
 	raw, err := conn.SyscallConn()
 	if err != nil {
 		return fail(err)

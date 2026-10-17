@@ -70,7 +70,11 @@ func testClient(t *testing.T, hook func(frame, netip.Addr)) (*Client, *fakeTrans
 	f := newFake()
 	f.hook = hook
 	c := newClient(f, local, 100*time.Millisecond)
-	t.Cleanup(func() { c.Close() })
+	t.Cleanup(func() {
+		if err := c.Close(); err != nil {
+			t.Error(err)
+		}
+	})
 	return c, f
 }
 func TestRequestRejectsUnrelatedResponses(t *testing.T) {
@@ -155,11 +159,15 @@ func TestCancelCloseAndTID(t *testing.T) {
 	}
 	finished := make(chan error, 1)
 	go func() { _, err := o.Get(context.Background(), 0x80); finished <- err }()
-	c.Close()
+	if err := c.Close(); err != nil {
+		t.Fatal(err)
+	}
 	if err := <-finished; err == nil {
 		t.Fatal("Close did not cancel request")
 	}
-	c.Close()
+	if err := c.Close(); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := o.Get(context.Background(), 0x80); !errors.Is(err, ErrClosed) {
 		t.Fatal(err)
 	}
@@ -306,7 +314,9 @@ func TestPendingLimitAndReadFailure(t *testing.T) {
 		t.Fatal(err)
 	}
 	// A receive failure terminates the client and future requests.
-	f.Close()
+	if err := f.Close(); err != nil {
+		t.Fatal(err)
+	}
 	select {
 	case <-c.closed:
 	case <-time.After(time.Second):

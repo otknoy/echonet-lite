@@ -129,3 +129,15 @@ func TestCLIControls(t *testing.T) {
 		}
 	}
 }
+
+type failingWriter struct{}
+
+func (failingWriter) Write([]byte) (int, error) { return 0, errors.New("output unavailable") }
+
+func TestHelpOutputFailure(t *testing.T) {
+	var diagnostics bytes.Buffer
+	code := Run(context.Background(), []string{"--help"}, failingWriter{}, &diagnostics)
+	if code != 1 || !strings.Contains(diagnostics.String(), "output unavailable") {
+		t.Fatalf("code=%d diagnostics=%s", code, &diagnostics)
+	}
+}
