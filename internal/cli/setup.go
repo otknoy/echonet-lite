@@ -167,9 +167,16 @@ func setupConfig(ctx context.Context, input io.Reader, out io.Writer, open opene
 		labels = append(labels, fmt.Sprintf("%s (%s)", iface.name, iface.address))
 		names = append(names, iface.name)
 	}
-	index, err := p.choose("ネットワークインターフェースを選択してください。", labels, names)
-	if err != nil {
-		return cfg, err
+	index := 0
+	if len(candidates) == 1 {
+		if _, err = fmt.Fprintf(out, "探索用インターフェース: %s\n", labels[0]); err != nil {
+			return cfg, err
+		}
+	} else {
+		index, err = p.choose("ネットワークインターフェースを選択してください。", labels, names)
+		if err != nil {
+			return cfg, err
+		}
 	}
 	cfg.Interface = candidates[index].name
 	if _, err = fmt.Fprintln(out, "エアコンを探索しています..."); err != nil {

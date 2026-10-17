@@ -6,7 +6,7 @@
 
 | コマンド | 動作 |
 |---|---|
-| `echonet config init` | NIC 選択 → 探索 → 各エアコンの登録可否・命名 → 操作対象選択 |
+| `echonet config init` | 探索用 NIC 選択（候補一つなら自動） → 探索 → 各エアコンの登録可否・命名 → 操作対象選択 |
 | `echonet config init --force` | 対話完了後に既存設定を置き換える |
 | `echonet config init --empty` | 探索せず空のひな形を作成する |
 | `echonet config list` | 対象一覧を表示。選択中の対象に `*` |
@@ -26,7 +26,7 @@ init の選択は番号または名前で入力する。登録なしの場合は
 
 | 項目 | 内容 |
 |---|---|
-| `interface` | 共通の NIC 名。空欄なら候補が一つの場合に自動選択 |
+| `interface` | 探索用の NIC 名。空欄なら候補が一つの場合に自動選択 |
 | `targets` | 任意の名前と、host・EOJ の組 |
 | `current_target` | 操作対象の名前 |
 
@@ -42,12 +42,13 @@ echonet aircon status --interface eth0 --host 192.168.1.10 --eoj 013001
 
 | オプション | 動作 |
 |---|---|
-| `--interface NAME` | 設定の NIC を上書き |
+| `--interface NAME` | 取得・操作の通信経路を明示指定。探索では設定の NIC を上書き |
 | `--host IP --eoj EOJ` | 今回だけ操作対象を上書き。両方の指定が必要 |
 | `--timeout 3s` | 要求・探索の待機時間。既定3秒 |
 | `--format text\|json` | 出力形式。既定 text |
 | `--config PATH` | 使用する設定ファイル |
 
+取得・操作は既定で OS のルーティングに任せ、設定ファイルの `interface` は使わない。
 これらは aircon コマンドで利用できる。discover は対象選択を使わず、host・EOJ を受け付けない。
 設定ファイルがなければ引数だけで動作する。明示指定した設定ファイルがない場合や設定が不正な場合はエラー。
 

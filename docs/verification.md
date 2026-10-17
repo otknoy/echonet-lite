@@ -5,7 +5,7 @@
 ```sh
 go test -race ./...
 golangci-lint run -v
-go build ./cmd/echonet
+go build -o /tmp/echonet ./cmd/echonet
 go install ./cmd/echonet
 ```
 
@@ -17,6 +17,7 @@ go install ./cmd/echonet
 
 - 電文の生成・解析、不正長、SetGet の二群構造、プロパティマップの二形式。
 - 応答照合、部分不可応答、設定結果不明、並行要求、TID の循環・隔離、キャンセル・Close。
+- NIC 未指定のユニキャスト、探索後も OS に経路を任せること、明示指定時の送受信 NIC 固定。
 - エアコンの値変換、未対応項目、CLI の引数・JSON・終了コード。
 - YAML の読み込み・上書き優先順位・対象切り替え、コメントと権限の保持。
 - 対話式 init の NIC 選択、登録可否・命名・対象選択、`--force`、中断・保存失敗時の元ファイル保持。

@@ -15,7 +15,7 @@ import (
 )
 
 func readStatus(ctx context.Context) (aircon.Status, error) {
-    client, err := echonet.Open(echonet.Options{Interface: "eth0"})
+    client, err := echonet.Open(echonet.Options{})
     if err != nil {
         return aircon.Status{}, err
     }
@@ -33,6 +33,8 @@ func readStatus(ctx context.Context) (aircon.Status, error) {
 
 IP・EOJ は実機に合わせて指定する。`Client.Discover(ctx)` でノードとオブジェクトの一覧を取得できる。
 Node・Object・Aircon の生成だけでは通信せず、取得・設定時に通信する。
+`Options.Interface` は任意。未指定のユニキャストは OS の経路選択を使い、指定時だけ NIC を固定する。
+未指定で Discover を呼ぶ場合は候補が一つなら自動選択し、複数なら Interface の指定が必要。
 
 ## API
 

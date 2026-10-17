@@ -17,7 +17,7 @@ go install github.com/otknoy/echonet-lite/cmd/echonet@latest
 echonet config init
 ```
 
-ネットワークインターフェースを選び、見つかったエアコンに名前を付けて登録し、操作対象を選択します。
+探索用のネットワークを選び（候補が一つなら自動）、見つかったエアコンに名前を付けて登録し、操作対象を選択します。
 設定は `~/.config/echonet/config.yaml` に保存されます。
 作り直す場合は `echonet config init --force` を使います。
 
@@ -31,6 +31,7 @@ echonet aircon temperature 26  # 設定温度を26℃に変更
 ```
 
 モードは `auto`・`cool`・`heat`・`dry`・`fan` です。対応する操作・温度範囲は機器によって異なります。
+通常の取得・操作では OS が通信経路を選択するため、ネットワークの指定は不要です。
 JSON 出力は `echonet aircon status --format json` で取得できます。
 
 複数のエアコンを切り替える場合:

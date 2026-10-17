@@ -23,7 +23,7 @@
 
 ## 検証・リリース
 
-コード変更後は `gofmt`、`go test -race ./...`、`golangci-lint run -v`、`go build ./cmd/echonet` を実行する。
+コード変更後は `gofmt`、`go test -race ./...`、`golangci-lint run -v`、`go build -o /tmp/echonet ./cmd/echonet` を実行する。
 文書のみの変更ではリンクと記載内容を確認する。
 自動テストは仮想機器を使い、実機の探索・操作は明示された試験で行う。
 スキップした試験や環境制約は報告し、実機確認済みとは扱わない。

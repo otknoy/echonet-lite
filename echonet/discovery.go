@@ -9,6 +9,22 @@ import (
 
 // Discover collects nodes for Options.Timeout, bounded by ctx. No responses is success.
 func (c *Client) Discover(ctx context.Context) ([]DiscoveredNode, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	select {
+	case <-c.closed:
+		return nil, c.failure()
+	default:
+	}
+	if transport, ok := c.transport.(interface{ prepareDiscovery() error }); ok {
+		if err := transport.prepareDiscovery(); err != nil {
+			return nil, err
+		}
+		if !c.localIP.IsValid() {
+			c.announce()
+		}
+	}
 	return c.discover(ctx, multicast)
 }
 func (c *Client) discover(ctx context.Context, target netip.Addr) ([]DiscoveredNode, error) {

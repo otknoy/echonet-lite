@@ -13,7 +13,9 @@ var controllerEOJ = EOJ{0x05, 0xff, 0x01}
 var nodeEOJ = EOJ{0x0e, 0xf0, 0x01}
 var multicast = netip.MustParseAddr("224.0.23.0")
 
-// Options selects a single IPv4 NIC. Timeout defaults to three seconds.
+// Options configures IPv4 UDP communication. An empty Interface uses OS routing
+// for unicast; discovery selects a multicast interface when needed.
+// Timeout defaults to three seconds.
 type Options struct {
 	Interface string
 	Timeout   time.Duration

@@ -103,7 +103,7 @@ func runWithInput(ctx context.Context, args []string, input io.Reader, out, diag
 	fs := flag.NewFlagSet(command, flag.ContinueOnError)
 	fs.SetOutput(diagnostics)
 	configPath := fs.String("config", "", "configuration file")
-	iface := fs.String("interface", "", "IPv4 interface")
+	iface := fs.String("interface", "", "force IPv4 interface (default: OS routing; discovery auto-selects)")
 	timeout := fs.Duration("timeout", 3*time.Second, "request or discovery timeout")
 	format := fs.String("format", "text", "text or json")
 	host := fs.String("host", "", "target IPv4 address")
@@ -143,7 +143,7 @@ func runWithInput(ctx context.Context, args []string, input io.Reader, out, diag
 	if doc != nil {
 		cfg = doc.Config
 	}
-	if !specified["interface"] {
+	if command == "discover" && !specified["interface"] {
 		*iface = cfg.Interface
 	}
 	var address netip.Addr

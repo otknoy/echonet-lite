@@ -1,4 +1,4 @@
-# 共通のネットワークインターフェース
+# 探索用のネットワークインターフェース（通常の取得・操作は OS に任せる）
 interface: eth0
 
 # 操作対象（echonet config use NAME で変更）

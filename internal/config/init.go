@@ -10,7 +10,7 @@ import (
 )
 
 // Start without an active target; example addresses must be edited before use.
-const initialConfig = `# 空欄ならネットワークインターフェースを自動選択します。
+const initialConfig = `# 探索用。空欄なら候補が一つの場合に自動選択します。
 interface: ""
 
 # 対象を登録した後、echonet config use NAME で切り替えます。

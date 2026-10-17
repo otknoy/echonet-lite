@@ -41,7 +41,9 @@ func (c *Client) localProperties(eoj EOJ) map[EPC][]byte {
 func (c *Client) serveLocal() {
 	defer c.workers.Done()
 	// Announce the controller instance after the receiver has started.
-	c.announce()
+	if c.localIP.IsValid() {
+		c.announce()
+	}
 	for {
 		select {
 		case req := <-c.localRequests:

@@ -75,7 +75,7 @@ func TestConfigListAndPersistentUse(t *testing.T) {
 	}
 	client := &selectedSession{}
 	code = run(context.Background(), []string{"aircon", "power", "on", "--config", path}, &out, &diag, func(o echonet.Options) (session, error) {
-		if o.Interface != "eth0" {
+		if o.Interface != "" {
 			t.Fatal(o)
 		}
 		return client, nil
@@ -91,7 +91,7 @@ func TestConfigOverrides(t *testing.T) {
 		iface, host string
 		eoj         echonet.EOJ
 	}{
-		{[]string{"aircon", "status", "--config", path}, "eth0", "192.0.2.10", echonet.EOJ{1, 0x30, 1}},
+		{[]string{"aircon", "status", "--config", path}, "", "192.0.2.10", echonet.EOJ{1, 0x30, 1}},
 		{[]string{"aircon", "status", "--config", path, "--interface", "eth1", "--host", "192.0.2.20", "--eoj", "013003"}, "eth1", "192.0.2.20", echonet.EOJ{1, 0x30, 3}},
 		{[]string{"aircon", "status", "--config", path, "--interface="}, "", "192.0.2.10", echonet.EOJ{1, 0x30, 1}},
 	} {
@@ -138,7 +138,12 @@ func TestDefaultConfigAndDiscover(t *testing.T) {
 		t.Fatal(err)
 	}
 	selected := &selectedSession{}
-	code = run(context.Background(), []string{"aircon", "power", "off"}, &out, &diag, func(echonet.Options) (session, error) { return selected, nil })
+	code = run(context.Background(), []string{"aircon", "power", "off"}, &out, &diag, func(o echonet.Options) (session, error) {
+		if o.Interface != "" {
+			t.Fatal(o)
+		}
+		return selected, nil
+	})
 	if code != 0 || selected.address.String() != "192.0.2.10" {
 		t.Fatalf("%d %+v %s", code, selected, &diag)
 	}

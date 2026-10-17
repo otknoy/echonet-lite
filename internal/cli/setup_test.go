@@ -197,3 +197,22 @@ func TestForceInitSavesOnlyAfterSetupCompletes(t *testing.T) {
 		})
 	}
 }
+
+func TestInitSingleInterfaceSelectsAutomatically(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	client := &fakeSession{nodes: []echonet.DiscoveredNode{{Address: netip.MustParseAddr("192.0.2.10"), Objects: []echonet.EOJ{{1, 0x30, 1}}}}}
+	var out, diag bytes.Buffer
+	code := runWithInput(context.Background(), []string{"config", "init", "--config", path}, strings.NewReader("y\nliving\n1\n"), &out, &diag, func(o echonet.Options) (session, error) {
+		if o.Interface != "eth0" {
+			t.Fatal(o)
+		}
+		return client, nil
+	}, func() ([]networkInterface, error) { all, _ := setupInterfaces(); return all[:1], nil })
+	if code != 0 {
+		t.Fatalf("%d %s %s", code, &out, &diag)
+	}
+	doc, err := config.Load(path)
+	if err != nil || doc.Config.Interface != "eth0" || doc.Config.CurrentTarget != "living" {
+		t.Fatal(doc, err)
+	}
+}
