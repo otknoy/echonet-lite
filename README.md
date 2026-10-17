@@ -3,24 +3,40 @@
 ECHONET Lite 対応エアコンの情報取得・操作を行う Go ライブラリと CLI の試作です。
 Linux / Go 1.25 以降で動作し、外部依存はありません。
 
-## インストール
+## CLI のインストール
 
 ```sh
 go install github.com/otknoy/echonet-lite/cmd/echonet@latest
 echonet --help
 ```
 
-インストール先は `GOBIN`、未設定なら `$(go env GOPATH)/bin` です。そのディレクトリを `PATH` に追加してください。
+特定のリリースを指定する場合は、`@latest` を `@v0.1.0` などの公開済みタグに置き換えてください。
 
-## CLI
+## CLI の使い方
+
+エアコンの ECHONET Lite 機能を有効にし、同じ LAN に接続して実行します。
+`eth0` は利用するネットワークインターフェース名に置き換えてください。
 
 ```sh
-go build -buildvcs=false -o /tmp/echonet ./cmd/echonet
-/tmp/echonet aircon discover --interface eth0
-/tmp/echonet aircon status --interface eth0 --host 192.168.1.10 --eoj 013001 --format json
-/tmp/echonet aircon power on --interface eth0 --host 192.168.1.10 --eoj 013001
-/tmp/echonet aircon mode cool --interface eth0 --host 192.168.1.10 --eoj 013001
-/tmp/echonet aircon temperature 26 --interface eth0 --host 192.168.1.10 --eoj 013001
+# エアコンを探索（IP アドレスと EOJ を表示）
+echonet aircon discover --interface eth0
+
+# 状態を取得（電源・運転モード・設定温度・室温）
+echonet aircon status --interface eth0 --host 192.168.1.10 --eoj 013001
+
+# 電源を ON / OFF
+echonet aircon power on --interface eth0 --host 192.168.1.10 --eoj 013001
+echonet aircon power off --interface eth0 --host 192.168.1.10 --eoj 013001
+
+# 冷房に変更し、設定温度を26℃に変更
+echonet aircon mode cool --interface eth0 --host 192.168.1.10 --eoj 013001
+echonet aircon temperature 26 --interface eth0 --host 192.168.1.10 --eoj 013001
+```
+
+JSON で取得する場合は `--format json` を指定します。
+
+```sh
+echonet aircon status --interface eth0 --host 192.168.1.10 --eoj 013001 --format json
 ```
 
 `--host`・`--eoj` は探索結果に合わせて指定してください。NIC 候補が一つなら `--interface` を省略できます。
