@@ -29,7 +29,8 @@ const usage = `Usage:
   echonet config list [--config PATH]
   echonet config use NAME [--config PATH]
 Aircon commands accept --interface, --timeout, --format text|json, --config PATH.
-Without --host and --eoj, aircon commands use the configured current_target.
+Use --target NAME (repeatable) to select configured targets; do not combine with --host/--eoj.
+Without --target or --host/--eoj, aircon commands use the configured current_target.
 `
 
 type airconControl interface {
@@ -108,6 +109,14 @@ func runWithInput(ctx context.Context, args []string, input io.Reader, out, diag
 	format := fs.String("format", "text", "text or json")
 	host := fs.String("host", "", "target IPv4 address")
 	eojText := fs.String("eoj", "", "target EOJ (six hexadecimal digits)")
+	var targetNames []string
+	fs.Func("target", "configured target or group name (repeatable)", func(name string) error {
+		if strings.TrimSpace(name) == "" {
+			return fmt.Errorf("target name must not be empty")
+		}
+		targetNames = append(targetNames, name)
+		return nil
+	})
 	if err := fs.Parse(rest); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
 			return 0
@@ -132,8 +141,11 @@ func runWithInput(ctx context.Context, args []string, input io.Reader, out, diag
 	if specified["host"] != specified["eoj"] {
 		return bad(fmt.Errorf("--host and --eoj must be specified together"))
 	}
-	if command == "discover" && (specified["host"] || specified["eoj"]) {
-		return bad(fmt.Errorf("discover does not accept host or eoj"))
+	if len(targetNames) > 0 && (specified["host"] || specified["eoj"]) {
+		return bad(fmt.Errorf("--target cannot be combined with --host or --eoj"))
+	}
+	if command == "discover" && (specified["host"] || specified["eoj"] || specified["target"]) {
+		return bad(fmt.Errorf("discover does not accept host, eoj or target"))
 	}
 	doc, err := loadConfig(*configPath, specified["config"])
 	if err != nil {
@@ -146,19 +158,20 @@ func runWithInput(ctx context.Context, args []string, input io.Reader, out, diag
 	if command == "discover" && !specified["interface"] {
 		*iface = cfg.Interface
 	}
-	var address netip.Addr
-	var eoj echonet.EOJ
+	var targets []selectedTarget
 	var mode aircon.Mode
 	var temperature int
 	if command != "discover" {
-		target := config.Target{Host: *host, EOJ: *eojText}
-		if !specified["host"] {
-			target, err = cfg.Selected()
+		var named []config.NamedTarget
+		if specified["host"] {
+			named = []config.NamedTarget{{Target: config.Target{Host: *host, EOJ: *eojText}}}
+		} else {
+			named, err = cfg.Resolve(targetNames...)
 			if err != nil {
 				return bad(err)
 			}
 		}
-		address, eoj, err = config.ParseTarget(target)
+		targets, err = prepareTargets(named)
 		if err != nil {
 			return bad(err)
 		}
@@ -226,53 +239,9 @@ func runWithInput(ctx context.Context, args []string, input io.Reader, out, diag
 		}
 		return 0
 	}
-	ac, err := client.Aircon(address, eoj)
-	if err != nil {
-		report(err)
-		return 1
-	}
-	if command == "status" {
-		status, requestErr := ac.Status(ctx)
-		if *format == "json" {
-			err = emit(status)
-		} else {
-			_, err = fmt.Fprintf(out, "power: %s\nmode: %s\ntemperature: %s\nroom_temperature: %s\n", fieldText(status.Power), fieldText(status.Mode), fieldText(status.Temperature), fieldText(status.RoomTemperature))
-		}
-		if err != nil {
-			report(err)
-			return 1
-		}
-		if requestErr != nil {
-			report(requestErr)
-			return 1
-		}
-		return 0
-	}
-	switch command {
-	case "power":
-		err = ac.SetPower(ctx, value == "on")
-	case "mode":
-		err = ac.SetMode(ctx, mode)
-	case "temperature":
-		err = ac.SetTemperature(ctx, temperature)
-	}
-	if err != nil {
-		report(err)
-		return 1
-	}
-	if *format == "json" {
-		err = emit(struct {
-			Status string `json:"status"`
-		}{"accepted"})
-	} else {
-		err = emit("accepted")
-	}
-	if err != nil {
-		report(err)
-		return 1
-	}
-	return 0
+	return operateTargets(ctx, client, targets, operation{command: command, power: value == "on", mode: mode, temperature: temperature}, (!specified["host"] && namedSelection(cfg, targetNames)) || len(targets) > 1, *format, out, diagnostics)
 }
+
 func fieldText[T any](f aircon.Field[T]) string {
 	if f.Value != nil {
 		return fmt.Sprint(*f.Value)

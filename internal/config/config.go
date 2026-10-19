@@ -9,7 +9,6 @@ import (
 	"net/netip"
 	"os"
 	"path/filepath"
-	"strings"
 
 	"github.com/otknoy/echonet-lite/aircon"
 	"github.com/otknoy/echonet-lite/echonet"
@@ -21,9 +20,10 @@ type Target struct {
 	EOJ  string `yaml:"eoj"`
 }
 type Config struct {
-	Interface     string            `yaml:"interface"`
-	CurrentTarget string            `yaml:"current_target"`
-	Targets       map[string]Target `yaml:"targets"`
+	Interface     string              `yaml:"interface"`
+	CurrentTarget string              `yaml:"current_target"`
+	Targets       map[string]Target   `yaml:"targets"`
+	Groups        map[string][]string `yaml:"groups,omitempty"`
 }
 
 // Document retains the YAML tree so changing the selection preserves comments.
@@ -84,34 +84,26 @@ func Load(path string) (*Document, error) {
 	if len(doc.tree.Content) != 1 || doc.tree.Content[0].Kind != yaml.MappingNode {
 		return nil, fmt.Errorf("config %s: expected a YAML mapping", path)
 	}
-	for name, target := range doc.Config.Targets {
-		if strings.TrimSpace(name) == "" {
-			return nil, fmt.Errorf("config: target name must not be empty")
-		}
-		if _, _, err = ParseTarget(target); err != nil {
-			return nil, fmt.Errorf("config target %q: %w", name, err)
-		}
-	}
-	if name := doc.Config.CurrentTarget; name != "" {
-		if _, ok := doc.Config.Targets[name]; !ok {
-			return nil, fmt.Errorf("config: current target %q is not registered", name)
-		}
+	if err = doc.Config.Validate(); err != nil {
+		return nil, err
 	}
 	return doc, nil
 }
+
+// Selected returns one device. Resolve must be used for selections containing groups.
 func (c Config) Selected() (Target, error) {
-	if c.CurrentTarget == "" {
-		return Target{}, fmt.Errorf("no current target; use 'echonet config use NAME' or specify both --host and --eoj")
+	targets, err := c.Resolve()
+	if err != nil {
+		return Target{}, err
 	}
-	target, ok := c.Targets[c.CurrentTarget]
-	if !ok {
-		return Target{}, fmt.Errorf("target %q is not registered", c.CurrentTarget)
+	if len(targets) != 1 {
+		return Target{}, fmt.Errorf("current target resolves to multiple devices; use Resolve")
 	}
-	return target, nil
+	return targets[0].Target, nil
 }
 func (d *Document) Use(name string) error {
-	if _, ok := d.Config.Targets[name]; !ok {
-		return fmt.Errorf("target %q is not registered", name)
+	if _, err := d.Config.Resolve(name); err != nil {
+		return err
 	}
 	// Clone the tree through YAML to leave the loaded document unchanged on failure.
 	data, err := yaml.Marshal(&d.tree)
