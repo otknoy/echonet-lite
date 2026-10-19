@@ -41,4 +41,13 @@ echonet config list
 echonet config use bedroom
 ```
 
+同じ操作を複数台へ送る場合:
+
+```sh
+echonet aircon power on --target living --target bedroom
+```
+
+設定の `groups` にまとめれば、`echonet config use upstairs` でグループを操作対象にできます。
+[設定サンプル](config.example.yaml)を参照してください。各エアコンの結果は個別に表示します。
+
 詳しくは [CLI と設定](docs/cli.md)、[ライブラリの使い方](docs/library.md)、[対応範囲・検証](docs/verification.md)を参照してください。

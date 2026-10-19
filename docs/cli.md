@@ -9,8 +9,8 @@
 | `echonet config init` | 探索用 NIC 選択（候補一つなら自動） → 探索 → 各エアコンの登録可否・命名 → 操作対象選択 |
 | `echonet config init --force` | 対話完了後に既存設定を置き換える |
 | `echonet config init --empty` | 探索せず空のひな形を作成する |
-| `echonet config list` | 対象一覧を表示。選択中の対象に `*` |
-| `echonet config use NAME` | 操作対象を切り替えて保存する |
+| `echonet config list` | 対象・グループ一覧を表示。選択中の対象に `*` |
+| `echonet config use NAME` | 個別対象またはグループへ切り替えて保存する |
 
 init の選択は番号または名前で入力する。登録なしの場合は NIC のみ保存する。
 入力中断・探索失敗時は保存しない。再作成時も元の設定を保持する。
@@ -28,10 +28,37 @@ init の選択は番号または名前で入力する。登録なしの場合は
 |---|---|
 | `interface` | 探索用の NIC 名。空欄なら候補が一つの場合に自動選択 |
 | `targets` | 任意の名前と、host・EOJ の組 |
-| `current_target` | 操作対象の名前 |
+| `groups` | 個別 target 名のリストを持つグループ |
+| `current_target` | 操作対象の名前（グループも指定可能） |
 
 host は IPv4 アドレス、EOJ は機器オブジェクトを識別する6桁の16進文字列（例: `"013001"`）。
 同じ IP 上の複数機器も EOJ で区別する。
+
+## 複数台・グループの操作
+
+```sh
+echonet aircon power on --target living --target bedroom
+echonet aircon status --target upstairs --format json
+echonet config use upstairs
+echonet aircon temperature 26
+```
+
+グループは設定ファイルに追記する。init は個別 target を登録する。
+
+```yaml
+groups:
+  upstairs: [living, bedroom]
+```
+
+- `--target NAME` は複数指定でき、個別 target とグループを混在させられる。省略時は `current_target` を使う。
+- グループの入れ子・空のグループ・未登録のメンバー・target と group の同名は不可。
+- 展開後の同じ IP・EOJ は一度だけ操作し、最初に指定された target 名で結果を表示する。
+- 名前と入力値は実行前に検証する。要求は並行して送り、一台が失敗しても残りの結果を待つ。一台でも失敗すれば終了コード `1`。
+- 結果は指定順・グループ内の記述順に表示する。同時刻の動作や全台一括成功は保証しない。
+
+`--target` 使用時と current_target がグループの場合、JSON は個別結果の配列になる。
+各要素は `target`・`host`・`eoj`・`result`（`ok` / `accepted` / `error`）、状態取得時の `status`、失敗時の `error` を持つ。
+状態取得の部分結果も保持する。従来の単一 current_target・host/EOJ 直接指定の出力形式は変えない。
 
 ## 引数での指定
 
@@ -43,13 +70,14 @@ echonet aircon status --interface eth0 --host 192.168.1.10 --eoj 013001
 | オプション | 動作 |
 |---|---|
 | `--interface NAME` | 取得・操作の通信経路を明示指定。探索では設定の NIC を上書き |
+| `--target NAME` | 個別 target またはグループを指定。複数指定可能 |
 | `--host IP --eoj EOJ` | 今回だけ操作対象を上書き。両方の指定が必要 |
 | `--timeout 3s` | 要求・探索の待機時間。既定3秒 |
 | `--format text\|json` | 出力形式。既定 text |
 | `--config PATH` | 使用する設定ファイル |
 
 取得・操作は既定で OS のルーティングに任せ、設定ファイルの `interface` は使わない。
-これらは aircon コマンドで利用できる。discover は対象選択を使わず、host・EOJ を受け付けない。
+これらは aircon コマンドで利用できる。discover は対象選択を使わず、host・EOJ・target を受け付けない。`--target` と host・EOJ の併用も不可。
 設定ファイルがなければ引数だけで動作する。明示指定した設定ファイルがない場合や設定が不正な場合はエラー。
 
 ## 結果の読み方
