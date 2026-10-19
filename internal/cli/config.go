@@ -8,6 +8,7 @@ import (
 	"io"
 	"os"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/otknoy/echonet-lite/internal/config"
@@ -133,7 +134,7 @@ func runConfig(ctx context.Context, args []string, input io.Reader, out, diagnos
 		return 2
 	}
 	if command == "use" {
-		if _, ok := doc.Config.Targets[name]; !ok {
+		if !doc.Config.Has(name) {
 			report(fmt.Errorf("target %q is not registered", name))
 			return 2
 		}
@@ -147,8 +148,11 @@ func runConfig(ctx context.Context, args []string, input io.Reader, out, diagnos
 		}
 		return 0
 	}
-	names := make([]string, 0, len(doc.Config.Targets))
+	names := make([]string, 0, len(doc.Config.Targets)+len(doc.Config.Groups))
 	for name := range doc.Config.Targets {
+		names = append(names, name)
+	}
+	for name := range doc.Config.Groups {
 		names = append(names, name)
 	}
 	sort.Strings(names)
@@ -156,6 +160,13 @@ func runConfig(ctx context.Context, args []string, input io.Reader, out, diagnos
 		marker := " "
 		if name == doc.Config.CurrentTarget {
 			marker = "*"
+		}
+		if members, group := doc.Config.Groups[name]; group {
+			if _, err = fmt.Fprintf(out, "%s %s [group] %s\n", marker, name, strings.Join(members, ", ")); err != nil {
+				report(err)
+				return 1
+			}
+			continue
 		}
 		target := doc.Config.Targets[name]
 		if _, err = fmt.Fprintf(out, "%s %s %s %s\n", marker, name, target.Host, target.EOJ); err != nil {

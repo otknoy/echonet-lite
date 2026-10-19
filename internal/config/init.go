@@ -31,6 +31,9 @@ func Init(path string, force bool) error { return create(path, []byte(initialCon
 
 // Create saves a completed setup, replacing an existing file only with force.
 func Create(path string, cfg Config, force bool) error {
+	if err := cfg.Validate(); err != nil {
+		return err
+	}
 	data, err := yaml.Marshal(cfg)
 	if err != nil {
 		return err

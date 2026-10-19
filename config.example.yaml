@@ -11,3 +11,9 @@ targets:
   bedroom:
     host: 192.168.1.11
     eoj: "013001"
+
+# 個別 target を束ねるグループ（入れ子は不可）
+groups:
+  upstairs:
+    - living
+    - bedroom
