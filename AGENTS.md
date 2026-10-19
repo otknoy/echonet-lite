@@ -11,6 +11,7 @@
 | [ライブラリ](docs/library.md) | 低レイヤー・高レイヤー API の使い方 |
 | [設計](docs/architecture.md) | パッケージの責務、通信とエラー処理の方針 |
 | [検証](docs/verification.md) | 開発コマンド、実機試験、対応範囲・制限 |
+| [CI/CD](docs/ci.md) | GitHub Actions のチェック、タグによるリリース |
 
 ## 開発方針
 
