@@ -20,7 +20,7 @@ jobs:
           go mod tidy
           git diff --exit-code -- go.mod go.sum
       - run: go test -race ./...
-      - run: go build ./cmd/echonet
+      - run: go build -o /tmp/echonet ./cmd/echonet
       - uses: golangci/golangci-lint-action@v9.3.0
         with:
           version: v2.15.0
