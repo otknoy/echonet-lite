@@ -16,7 +16,7 @@ import (
 func completionRun(t *testing.T, args ...string) (int, string, string) {
 	t.Helper()
 	var out, diag bytes.Buffer
-	code := runWithInput(context.Background(), args, strings.NewReader(""), &out, &diag,
+	code := execute(context.Background(), args, strings.NewReader(""), &out, &diag,
 		func(echonet.Options) (session, error) { t.Fatal("completion opened network"); return nil, nil },
 		func() ([]networkInterface, error) { return []networkInterface{{name: "eth0"}, {name: "wlan0"}}, nil })
 	return code, out.String(), diag.String()

@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"net/netip"
 	"strings"
 	"testing"
@@ -28,6 +29,9 @@ func (f *fakeSession) Discover(context.Context) ([]echonet.DiscoveredNode, error
 func (f *fakeSession) Close() error { f.closed = true; return nil }
 func TestArgumentsBeforeNetwork(t *testing.T) {
 	for _, args := range []string{
+		"aircon status --eoj 013001",
+		"aircon status --host 192.0.2.1 --eoj 013001 --target living",
+		"aircon status --host 192.0.2.1 --eoj 013001 --target=",
 		"aircon invalid", "aircon power", "aircon power yes --host 192.0.2.1 --eoj 013001",
 		"aircon status --host example.com --eoj 013001", "aircon status --host 192.0.2.1 --eoj 013000",
 		"aircon temperature 51 --host 192.0.2.1 --eoj 013001", "aircon temperature 26.5 --host 192.0.2.1 --eoj 013001",
@@ -135,9 +139,39 @@ type failingWriter struct{}
 func (failingWriter) Write([]byte) (int, error) { return 0, errors.New("output unavailable") }
 
 func TestHelpOutputFailure(t *testing.T) {
-	var diagnostics bytes.Buffer
-	code := Run(context.Background(), []string{"--help"}, failingWriter{}, &diagnostics)
-	if code != 1 || !strings.Contains(diagnostics.String(), "output unavailable") {
-		t.Fatalf("code=%d diagnostics=%s", code, &diagnostics)
+	for _, args := range [][]string{nil, {"--help"}} {
+		var diagnostics bytes.Buffer
+		code := Run(context.Background(), args, failingWriter{}, &diagnostics)
+		if code != 1 || strings.Count(diagnostics.String(), "output unavailable") != 1 {
+			t.Fatalf("args=%v code=%d diagnostics=%s", args, code, &diagnostics)
+		}
+	}
+}
+
+// run supplies non-interactive input for command tests.
+func run(ctx context.Context, args []string, out, diagnostics io.Writer, open opener) int {
+	return execute(ctx, args, strings.NewReader(""), out, diagnostics, open, availableInterfaces)
+}
+
+func TestCommandsUseConfiguredOutput(t *testing.T) {
+	path := testConfig(t)
+	for _, args := range [][]string{
+		{"aircon", "power", "on", "--host", "192.0.2.10", "--eoj", "013001", "--config", path},
+		{"config", "list", "--config", path},
+		{"completion", "bash"},
+	} {
+		t.Run(strings.Join(args[:2], " "), func(t *testing.T) {
+			root := newRootCommand(strings.NewReader(""), io.Discard, io.Discard,
+				func(echonet.Options) (session, error) { return &fakeSession{}, nil }, availableInterfaces)
+			var out bytes.Buffer
+			root.SetOut(&out)
+			root.SetArgs(args)
+			if err := root.ExecuteContext(context.Background()); err != nil {
+				t.Fatal(err)
+			}
+			if out.Len() == 0 {
+				t.Fatal("command did not use the configured output")
+			}
+		})
 	}
 }

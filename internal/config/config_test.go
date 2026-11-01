@@ -35,9 +35,9 @@ func TestLoadAndUse(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	target, err := doc.Config.Selected()
-	if err != nil || target.Host != "192.0.2.10" || target.EOJ != "013001" {
-		t.Fatalf("%+v %v", target, err)
+	targets, err := doc.Config.Resolve()
+	if err != nil || len(targets) != 1 || targets[0].Target.Host != "192.0.2.10" || targets[0].Target.EOJ != "013001" {
+		t.Fatalf("%+v %v", targets, err)
 	}
 	if err = doc.Use("bedroom"); err != nil {
 		t.Fatal(err)
@@ -46,9 +46,9 @@ func TestLoadAndUse(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	target, err = reloaded.Config.Selected()
-	if err != nil || target.Host != "192.0.2.11" || target.EOJ != "013002" {
-		t.Fatalf("%+v %v", target, err)
+	targets, err = reloaded.Config.Resolve()
+	if err != nil || len(targets) != 1 || targets[0].Target.Host != "192.0.2.11" || targets[0].Target.EOJ != "013002" {
+		t.Fatalf("%+v %v", targets, err)
 	}
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -77,7 +77,7 @@ func TestUseAddsSelectionAndKeepsSymlink(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err = doc.Config.Selected(); err == nil {
+	if _, err = doc.Config.Resolve(); err == nil {
 		t.Fatal("selected target should be absent")
 	}
 	if err = doc.Use("living"); err != nil {
@@ -112,7 +112,7 @@ func TestInterfaceOnly(t *testing.T) {
 	if err != nil || doc.Config.Interface != "eth0" {
 		t.Fatal(doc, err)
 	}
-	if _, err = doc.Config.Selected(); err == nil {
+	if _, err = doc.Config.Resolve(); err == nil {
 		t.Fatal("accepted missing selection")
 	}
 }

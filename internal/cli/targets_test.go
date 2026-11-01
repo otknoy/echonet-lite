@@ -281,3 +281,18 @@ func TestMultipleTargetsCancellation(t *testing.T) {
 		t.Fatal(&out)
 	}
 }
+
+func TestTargetAndOutputFailuresAreReportedOnce(t *testing.T) {
+	path := testConfig(t)
+	client := &batchSession{controls: map[string]*batchControl{
+		"192.0.2.10": {fakeControl: fakeControl{err: context.DeadlineExceeded}},
+		"192.0.2.11": {fakeControl: fakeControl{err: context.Canceled}},
+	}}
+	var diagnostics bytes.Buffer
+	code := run(context.Background(), []string{"aircon", "status", "--target", "living", "--target", "bedroom", "--config", path},
+		failingWriter{}, &diagnostics, func(echonet.Options) (session, error) { return client, nil })
+	want := "living: context deadline exceeded\nbedroom: context canceled\noutput unavailable\n"
+	if code != 1 || diagnostics.String() != want || !client.closed {
+		t.Fatalf("code=%d closed=%v diagnostics=%q", code, client.closed, diagnostics.String())
+	}
+}
