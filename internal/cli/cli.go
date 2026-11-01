@@ -4,34 +4,19 @@ package cli
 import (
 	"context"
 	"encoding/json"
-	"errors"
-	"flag"
 	"fmt"
 	"io"
 	"net/netip"
 	"os"
 	"strconv"
 	"strings"
-	"time"
 
 	"github.com/otknoy/echonet-lite/aircon"
 	"github.com/otknoy/echonet-lite/echonet"
 	"github.com/otknoy/echonet-lite/internal/config"
+	"github.com/spf13/cobra"
+	"github.com/spf13/pflag"
 )
-
-const usage = `Usage:
-  echonet aircon discover [--interface eth0] [--timeout 3s] [--format json]
-  echonet aircon status [--host IP --eoj 013001]
-  echonet aircon power on|off [--host IP --eoj 013001]
-  echonet aircon mode auto|cool|heat|dry|fan [--host IP --eoj 013001]
-  echonet aircon temperature 26 [--host IP --eoj 013001]
-  echonet config init [--config PATH] [--timeout 3s] [--empty] [--force]
-  echonet config list [--config PATH]
-  echonet config use NAME [--config PATH]
-Aircon commands accept --interface, --timeout, --format text|json, --config PATH.
-Use --target NAME (repeatable) to select configured targets; do not combine with --host/--eoj.
-Without --target or --host/--eoj, aircon commands use the configured current_target.
-`
 
 type airconControl interface {
 	Status(context.Context) (aircon.Status, error)
@@ -70,61 +55,21 @@ func RunWithInput(ctx context.Context, args []string, input io.Reader, out, diag
 func run(ctx context.Context, args []string, out, diagnostics io.Writer, open opener) int {
 	return runWithInput(ctx, args, strings.NewReader(""), out, diagnostics, open, availableInterfaces)
 }
-func runWithInput(ctx context.Context, args []string, input io.Reader, out, diagnostics io.Writer, open opener, interfaces interfaceLister) int {
-	// Diagnostic write failures cannot be reported to another output stream.
+func runAircon(ctx context.Context, cmd *cobra.Command, args []string, out, diagnostics io.Writer, open opener, o *airconOptions) int {
 	report := func(err error) { _, _ = fmt.Fprintln(diagnostics, err) }
 	bad := func(err error) int { report(err); return 2 }
-	if len(args) == 0 || (len(args) == 1 && (args[0] == "--help" || args[0] == "-h")) {
-		if _, err := fmt.Fprint(out, usage); err != nil {
-			report(err)
-			return 1
-		}
-		return 0
-	}
-	if args[0] == "config" {
-		return runConfig(ctx, args[1:], input, out, diagnostics, open, interfaces)
-	}
-	if len(args) < 2 || args[0] != "aircon" {
-		return bad(fmt.Errorf("expected aircon or config subcommand"))
-	}
-	command := args[1]
-	rest := args[2:]
+	command := cmd.Name()
 	value := ""
-	switch command {
-	case "discover", "status":
-	case "power", "mode", "temperature":
-		if len(rest) == 0 || strings.HasPrefix(rest[0], "--") {
-			return bad(fmt.Errorf("%s requires a value", command))
-		}
-		value = rest[0]
-		rest = rest[1:]
-	default:
-		return bad(fmt.Errorf("unknown command %q", command))
+	if len(args) > 0 {
+		value = args[0]
 	}
-	fs := flag.NewFlagSet(command, flag.ContinueOnError)
-	fs.SetOutput(diagnostics)
-	configPath := fs.String("config", "", "configuration file")
-	iface := fs.String("interface", "", "force IPv4 interface (default: OS routing; discovery auto-selects)")
-	timeout := fs.Duration("timeout", 3*time.Second, "request or discovery timeout")
-	format := fs.String("format", "text", "text or json")
-	host := fs.String("host", "", "target IPv4 address")
-	eojText := fs.String("eoj", "", "target EOJ (six hexadecimal digits)")
-	var targetNames []string
-	fs.Func("target", "configured target or group name (repeatable)", func(name string) error {
+	fs := cmd.Flags()
+	configPath, iface, timeout, format := &o.configPath, &o.iface, &o.timeout, &o.format
+	host, eojText, targetNames := &o.host, &o.eoj, o.targets
+	for _, name := range targetNames {
 		if strings.TrimSpace(name) == "" {
-			return fmt.Errorf("target name must not be empty")
+			return bad(fmt.Errorf("target name must not be empty"))
 		}
-		targetNames = append(targetNames, name)
-		return nil
-	})
-	if err := fs.Parse(rest); err != nil {
-		if errors.Is(err, flag.ErrHelp) {
-			return 0
-		}
-		return 2
-	}
-	if fs.NArg() != 0 {
-		return bad(fmt.Errorf("unexpected arguments: %v", fs.Args()))
 	}
 	if *timeout <= 0 {
 		return bad(fmt.Errorf("timeout must be positive"))
@@ -134,7 +79,7 @@ func runWithInput(ctx context.Context, args []string, input io.Reader, out, diag
 	}
 
 	specified := make(map[string]bool)
-	fs.Visit(func(f *flag.Flag) { specified[f.Name] = true })
+	fs.Visit(func(f *pflag.Flag) { specified[f.Name] = true })
 	if specified["config"] && *configPath == "" {
 		return bad(fmt.Errorf("--config requires a path"))
 	}

@@ -80,6 +80,35 @@ echonet aircon status --interface eth0 --host 192.168.1.10 --eoj 013001
 これらは aircon コマンドで利用できる。discover は対象選択を使わず、host・EOJ・target を受け付けない。`--target` と host・EOJ の併用も不可。
 設定ファイルがなければ引数だけで動作する。明示指定した設定ファイルがない場合や設定が不正な場合はエラー。
 
+## シェル補完
+
+bash・zsh の Tab 補完に対応する。`echonet` が PATH にある状態で、次の設定を追加する。
+
+bash (`~/.bashrc`):
+
+```sh
+source <(echonet completion bash)
+```
+
+bash では bash-completion v2 の導入も必要。
+
+zsh (`~/.zshrc`、既に `compinit` を実行している場合はその後の source 行のみ追加):
+
+```sh
+autoload -Uz compinit
+compinit
+source <(echonet completion zsh)
+```
+
+設定後、新しいシェルを起動するか設定ファイルを再読み込みする。
+
+コマンド・オプション、power・mode・format の値、設定内の対象名・グループ名、
+`--config` のファイルパス、`--interface` のローカル NIC 名を補完する。
+`--target` と `config use` の候補には、その時点で指定済みの `--config PATH` または
+`--config=PATH` を反映する。設定が存在しない・不正な場合は設定由来の候補を表示しない。
+補完時に機器との通信・対話入力・設定保存は行わない。
+温度・IP・EOJ・時間は手入力する。対応する補完スクリプトの出力先は bash・zsh のみ。
+
 ## 結果の読み方
 
 - status の JSON は各項目に `value`・`state` を持つ。state は `ok`・`unsupported`・`error`、値がなければ `null`。
