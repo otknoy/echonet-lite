@@ -90,17 +90,6 @@ func Load(path string) (*Document, error) {
 	return doc, nil
 }
 
-// Selected returns one device. Resolve must be used for selections containing groups.
-func (c Config) Selected() (Target, error) {
-	targets, err := c.Resolve()
-	if err != nil {
-		return Target{}, err
-	}
-	if len(targets) != 1 {
-		return Target{}, fmt.Errorf("current target resolves to multiple devices; use Resolve")
-	}
-	return targets[0].Target, nil
-}
 func (d *Document) Use(name string) error {
 	if _, err := d.Config.Resolve(name); err != nil {
 		return err

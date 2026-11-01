@@ -31,7 +31,7 @@ func TestInteractiveInit(t *testing.T) {
 	var out, diag bytes.Buffer
 	// Retry invalid NIC, blank and duplicate names; skip one AC; select the second registration.
 	input := strings.NewReader("9\neth1\ny\n\nliving\ny\nliving\n寝室\nn\n2\n")
-	code := runWithInput(context.Background(), []string{"config", "init", "--config", path, "--timeout", "2s"}, input, &out, &diag, func(o echonet.Options) (session, error) {
+	code := execute(context.Background(), []string{"config", "init", "--config", path, "--timeout", "2s"}, input, &out, &diag, func(o echonet.Options) (session, error) {
 		if o.Interface != "eth1" || o.Timeout != 2*time.Second {
 			t.Fatal(o)
 		}
@@ -64,7 +64,7 @@ func TestInitNoRegistrations(t *testing.T) {
 			input += "n\nn\nn\n"
 		}
 		var out, diag bytes.Buffer
-		code := runWithInput(context.Background(), []string{"config", "init", "--config", path}, strings.NewReader(input), &out, &diag, func(echonet.Options) (session, error) { return client, nil }, setupInterfaces)
+		code := execute(context.Background(), []string{"config", "init", "--config", path}, strings.NewReader(input), &out, &diag, func(echonet.Options) (session, error) { return client, nil }, setupInterfaces)
 		if code != 0 || !client.closed {
 			t.Fatalf("%d %s %s", code, &out, &diag)
 		}
@@ -86,7 +86,7 @@ func TestInitInterruptedOrDiscoveryFailed(t *testing.T) {
 			path := filepath.Join(t.TempDir(), "config.yaml")
 			client := &fakeSession{nodes: setupDevices(), err: test.discoveryErr}
 			var out, diag bytes.Buffer
-			code := runWithInput(context.Background(), []string{"config", "init", "--config", path}, strings.NewReader(test.input), &out, &diag, func(echonet.Options) (session, error) { return client, nil }, setupInterfaces)
+			code := execute(context.Background(), []string{"config", "init", "--config", path}, strings.NewReader(test.input), &out, &diag, func(echonet.Options) (session, error) { return client, nil }, setupInterfaces)
 			if code != 1 {
 				t.Fatalf("%d %s %s", code, &out, &diag)
 			}
@@ -102,7 +102,7 @@ func TestInitInterruptedOrDiscoveryFailed(t *testing.T) {
 func TestInitExistingFileDoesNotDiscover(t *testing.T) {
 	path := testConfig(t)
 	var out, diag bytes.Buffer
-	code := runWithInput(context.Background(), []string{"config", "init", "--config", path}, strings.NewReader(""), &out, &diag, func(echonet.Options) (session, error) { t.Fatal("opened network"); return nil, nil }, func() ([]networkInterface, error) { t.Fatal("enumerated interfaces"); return nil, nil })
+	code := execute(context.Background(), []string{"config", "init", "--config", path}, strings.NewReader(""), &out, &diag, func(echonet.Options) (session, error) { t.Fatal("opened network"); return nil, nil }, func() ([]networkInterface, error) { t.Fatal("enumerated interfaces"); return nil, nil })
 	if code != 1 {
 		t.Fatal(code)
 	}
@@ -115,7 +115,7 @@ func TestInitNoUsableInterface(t *testing.T) {
 	for _, enumerationErr := range []error{nil, errors.New("interface enumeration failed")} {
 		path := filepath.Join(t.TempDir(), "config.yaml")
 		var out, diag bytes.Buffer
-		code := runWithInput(context.Background(), []string{"config", "init", "--config", path}, strings.NewReader(""), &out, &diag, func(echonet.Options) (session, error) { t.Fatal("opened network"); return nil, nil }, func() ([]networkInterface, error) { return nil, enumerationErr })
+		code := execute(context.Background(), []string{"config", "init", "--config", path}, strings.NewReader(""), &out, &diag, func(echonet.Options) (session, error) { t.Fatal("opened network"); return nil, nil }, func() ([]networkInterface, error) { return nil, enumerationErr })
 		if code != 1 || diag.Len() == 0 {
 			t.Fatal(code, &diag)
 		}
@@ -138,7 +138,7 @@ func TestInitCancelWhileWaitingForInput(t *testing.T) {
 	done := make(chan int, 1)
 	go func() {
 		var out, diag bytes.Buffer
-		done <- runWithInput(ctx, []string{"config", "init", "--config", path}, input, &out, &diag, func(echonet.Options) (session, error) { return nil, errors.New("unexpected network") }, setupInterfaces)
+		done <- execute(ctx, []string{"config", "init", "--config", path}, input, &out, &diag, func(echonet.Options) (session, error) { return nil, errors.New("unexpected network") }, setupInterfaces)
 	}()
 	select {
 	case <-input.started:
@@ -173,7 +173,7 @@ func TestForceInitSavesOnlyAfterSetupCompletes(t *testing.T) {
 			path := testConfig(t)
 			client := &fakeSession{nodes: setupDevices(), err: test.discoveryErr}
 			var out, diag bytes.Buffer
-			code := runWithInput(context.Background(), []string{"config", "init", "--force", "--config", path}, strings.NewReader(test.input), &out, &diag, func(echonet.Options) (session, error) {
+			code := execute(context.Background(), []string{"config", "init", "--force", "--config", path}, strings.NewReader(test.input), &out, &diag, func(echonet.Options) (session, error) {
 				original, err := os.ReadFile(path)
 				if err != nil || string(original) != configSample {
 					t.Fatal("config replaced before discovery", err)
@@ -202,7 +202,7 @@ func TestInitSingleInterfaceSelectsAutomatically(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "config.yaml")
 	client := &fakeSession{nodes: []echonet.DiscoveredNode{{Address: netip.MustParseAddr("192.0.2.10"), Objects: []echonet.EOJ{{1, 0x30, 1}}}}}
 	var out, diag bytes.Buffer
-	code := runWithInput(context.Background(), []string{"config", "init", "--config", path}, strings.NewReader("y\nliving\n1\n"), &out, &diag, func(o echonet.Options) (session, error) {
+	code := execute(context.Background(), []string{"config", "init", "--config", path}, strings.NewReader("y\nliving\n1\n"), &out, &diag, func(o echonet.Options) (session, error) {
 		if o.Interface != "eth0" {
 			t.Fatal(o)
 		}

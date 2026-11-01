@@ -2,33 +2,19 @@ package cli
 
 import (
 	"context"
-	"encoding/json"
+	"errors"
 	"fmt"
-	"io"
 	"net/netip"
 	"sync"
 
 	"github.com/otknoy/echonet-lite/aircon"
 	"github.com/otknoy/echonet-lite/echonet"
-	"github.com/otknoy/echonet-lite/internal/config"
 )
 
 type selectedTarget struct {
 	name    string
 	address netip.Addr
 	eoj     echonet.EOJ
-}
-
-func prepareTargets(named []config.NamedTarget) ([]selectedTarget, error) {
-	result := make([]selectedTarget, 0, len(named))
-	for _, n := range named {
-		address, eoj, err := config.ParseTarget(n.Target)
-		if err != nil {
-			return nil, err
-		}
-		result = append(result, selectedTarget{n.Name, address, eoj})
-	}
-	return result, nil
 }
 
 type operation struct {
@@ -63,7 +49,7 @@ type targetResult struct {
 	Error  string         `json:"error,omitempty"`
 }
 
-func operateTargets(ctx context.Context, client session, targets []selectedTarget, op operation, named bool, format string, out, diagnostics io.Writer) int {
+func operateTargets(ctx context.Context, client session, targets []selectedTarget, op operation, named bool) ([]targetResult, error) {
 	results := make([]targetResult, len(targets))
 	controls := make([]airconControl, len(targets))
 	errs := make([]error, len(targets))
@@ -102,67 +88,14 @@ func operateTargets(ctx context.Context, client session, targets []selectedTarge
 		}()
 	}
 	workers.Wait()
-	code := 0
+	var failures []error
 	for i, err := range errs {
 		if err != nil {
-			code = 1
 			if named {
-				_, _ = fmt.Fprintf(diagnostics, "%s: %v\n", targets[i].name, err)
-			} else {
-				_, _ = fmt.Fprintln(diagnostics, err)
+				err = fmt.Errorf("%s: %w", targets[i].name, err)
 			}
+			failures = append(failures, err)
 		}
 	}
-	var err error
-	switch {
-	case named && format == "json":
-		err = json.NewEncoder(out).Encode(results)
-	case named:
-		for _, r := range results {
-			if r.Status != nil {
-				err = writeStatus(out, r.Target+"\t", *r.Status)
-			} else if r.Error != "" {
-				_, err = fmt.Fprintf(out, "%s\terror: %s\n", r.Target, r.Error)
-			} else {
-				_, err = fmt.Fprintf(out, "%s\t%s\n", r.Target, r.Result)
-			}
-			if err != nil {
-				break
-			}
-		}
-	case len(results) == 1:
-		r := results[0]
-		if r.Status != nil {
-			if format == "json" {
-				err = json.NewEncoder(out).Encode(r.Status)
-			} else {
-				err = writeStatus(out, "", *r.Status)
-			}
-		} else if errs[0] == nil {
-			if format == "json" {
-				err = json.NewEncoder(out).Encode(struct {
-					Status string `json:"status"`
-				}{"accepted"})
-			} else {
-				_, err = fmt.Fprintln(out, "accepted")
-			}
-		}
-	}
-	if err != nil {
-		_, _ = fmt.Fprintln(diagnostics, err)
-		return 1
-	}
-	return code
-}
-func writeStatus(out io.Writer, prefix string, status aircon.Status) error {
-	_, err := fmt.Fprintf(out, "%spower: %s\n%smode: %s\n%stemperature: %s\n%sroom_temperature: %s\n", prefix, fieldText(status.Power), prefix, fieldText(status.Mode), prefix, fieldText(status.Temperature), prefix, fieldText(status.RoomTemperature))
-	return err
-}
-
-func namedSelection(cfg config.Config, names []string) bool {
-	if len(names) > 0 {
-		return true
-	}
-	_, group := cfg.Groups[cfg.CurrentTarget]
-	return group
+	return results, errors.Join(failures...)
 }

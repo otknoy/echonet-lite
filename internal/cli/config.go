@@ -1,17 +1,59 @@
 package cli
 
 import (
-	"context"
 	"errors"
 	"fmt"
-	"io"
 	"os"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/otknoy/echonet-lite/internal/config"
 	"github.com/spf13/cobra"
 )
+
+type configOptions struct {
+	path         string
+	empty, force bool
+	timeout      time.Duration
+}
+
+func newConfigCommand(open opener, interfaces interfaceLister) *cobra.Command {
+	cfg := &cobra.Command{Use: "config", Short: "Manage configured targets", RunE: requireSubcommand}
+	for _, name := range []string{"init", "list", "use"} {
+		o := &configOptions{timeout: 3 * time.Second}
+		cmd := &cobra.Command{Use: name, Short: "Configuration " + name, Args: cobra.NoArgs, ValidArgsFunction: cobra.NoFileCompletions}
+		cmd.Flags().StringVar(&o.path, "config", "", "configuration file")
+		switch name {
+		case "init":
+			cmd.Flags().BoolVar(&o.empty, "empty", false, "create an empty template without interactive setup")
+			cmd.Flags().BoolVar(&o.force, "force", false, "replace an existing configuration after setup completes")
+			cmd.Flags().DurationVar(&o.timeout, "timeout", 3*time.Second, "discovery timeout")
+			mustRegisterCompletion(cmd, "timeout", cobra.NoFileCompletions)
+			cmd.RunE = func(cmd *cobra.Command, _ []string) error {
+				return runConfigInit(cmd, open, interfaces, o)
+			}
+		case "list":
+			cmd.RunE = func(cmd *cobra.Command, _ []string) error {
+				return runConfigList(cmd, o.path)
+			}
+		case "use":
+			cmd.Use += " NAME"
+			cmd.Args = cobra.ExactArgs(1)
+			cmd.ValidArgsFunction = func(cmd *cobra.Command, args []string, prefix string) ([]string, cobra.ShellCompDirective) {
+				if len(args) != 0 {
+					return nil, cobra.ShellCompDirectiveNoFileComp
+				}
+				return completeTargets(cmd, args, prefix)
+			}
+			cmd.RunE = func(cmd *cobra.Command, args []string) error {
+				return runConfigUse(cmd, args[0], o.path)
+			}
+		}
+		cfg.AddCommand(cmd)
+	}
+	return cfg
+}
 
 func loadConfig(path string, explicit bool) (*config.Document, error) {
 	if !explicit {
@@ -27,87 +69,91 @@ func loadConfig(path string, explicit bool) (*config.Document, error) {
 	}
 	return doc, err
 }
-func runConfig(ctx context.Context, cmd *cobra.Command, args []string, input io.Reader, out, diagnostics io.Writer, open opener, interfaces interfaceLister, o *configOptions) int {
-	report := func(err error) { _, _ = fmt.Fprintln(diagnostics, err) }
-	command := cmd.Name()
-	name := ""
-	if len(args) > 0 {
-		name = args[0]
-	}
-	path, empty, force, timeout := &o.path, o.empty, o.force, o.timeout
+
+func runConfigInit(cmd *cobra.Command, open opener, interfaces interfaceLister, o *configOptions) error {
+	ctx, input, out := cmd.Context(), cmd.InOrStdin(), cmd.OutOrStdout()
+	path := o.path
 	explicit := cmd.Flags().Changed("config")
-	if explicit && *path == "" {
-		report(fmt.Errorf("--config requires a path"))
-		return 2
+	if explicit && path == "" {
+		return fmt.Errorf("--config requires a path")
 	}
-	if command == "init" {
-		if !explicit {
-			defaultPath, err := config.DefaultPath()
-			if err != nil {
-				report(err)
-				return 1
-			}
-			*path = defaultPath
-		}
-		if timeout <= 0 {
-			report(fmt.Errorf("timeout must be positive"))
-			return 2
-		}
-		// Refuse existing files before enumerating interfaces or opening a socket.
-		if _, err := os.Lstat(*path); err == nil && !force {
-			report(fmt.Errorf("config %s already exists; use --force to replace it", *path))
-			return 1
-		} else if err != nil && !errors.Is(err, os.ErrNotExist) {
-			report(err)
-			return 1
-		}
-		var err error
-		if empty {
-			err = config.Init(*path, force)
-		} else {
-			var cfg config.Config
-			cfg, err = setupConfig(ctx, input, out, open, interfaces, timeout)
-			if err == nil {
-				err = ctx.Err()
-			}
-			if err == nil {
-				err = config.Create(*path, cfg, force)
-			}
-		}
+	if !explicit {
+		defaultPath, err := config.DefaultPath()
 		if err != nil {
-			report(err)
-			return 1
+			return executionFailure(err)
 		}
-		if _, err := fmt.Fprintln(out, *path); err != nil {
-			report(err)
-			return 1
-		}
-		return 0
+		path = defaultPath
 	}
-	doc, err := loadConfig(*path, explicit)
+	if o.timeout <= 0 {
+		return fmt.Errorf("timeout must be positive")
+	}
+	// Refuse existing files before enumerating interfaces or opening a socket.
+	if _, err := os.Lstat(path); err == nil && !o.force {
+		return executionFailure(fmt.Errorf("config %s already exists; use --force to replace it", path))
+	} else if err != nil && !errors.Is(err, os.ErrNotExist) {
+		return executionFailure(err)
+	}
+	var err error
+	if o.empty {
+		err = config.Init(path, o.force)
+	} else {
+		var cfg config.Config
+		cfg, err = setupConfig(ctx, input, out, open, interfaces, o.timeout)
+		if err == nil {
+			err = ctx.Err()
+		}
+		if err == nil {
+			err = config.Create(path, cfg, o.force)
+		}
+	}
 	if err != nil {
-		report(err)
-		return 2
+		return executionFailure(err)
+	}
+	if _, err := fmt.Fprintln(out, path); err != nil {
+		return executionFailure(err)
+	}
+	return nil
+}
+
+func loadRequiredConfig(cmd *cobra.Command, path string) (*config.Document, error) {
+	explicit := cmd.Flags().Changed("config")
+	if explicit && path == "" {
+		return nil, fmt.Errorf("--config requires a path")
+	}
+	doc, err := loadConfig(path, explicit)
+	if err != nil {
+		return nil, err
 	}
 	if doc == nil {
-		report(fmt.Errorf("configuration file not found; run 'echonet config init' first"))
-		return 2
+		return nil, fmt.Errorf("configuration file not found; run 'echonet config init' first")
 	}
-	if command == "use" {
-		if !doc.Config.Has(name) {
-			report(fmt.Errorf("target %q is not registered", name))
-			return 2
-		}
-		if err = doc.Use(name); err != nil {
-			report(err)
-			return 1
-		}
-		if _, err = fmt.Fprintln(out, name); err != nil {
-			report(err)
-			return 1
-		}
-		return 0
+	return doc, nil
+}
+
+func runConfigUse(cmd *cobra.Command, name, path string) error {
+	doc, err := loadRequiredConfig(cmd, path)
+	if err != nil {
+		return err
 	}
+	out := cmd.OutOrStdout()
+	if !doc.Config.Has(name) {
+		return fmt.Errorf("target %q is not registered", name)
+	}
+	if err = doc.Use(name); err != nil {
+		return executionFailure(err)
+	}
+	if _, err = fmt.Fprintln(out, name); err != nil {
+		return executionFailure(err)
+	}
+	return nil
+}
+
+func runConfigList(cmd *cobra.Command, path string) error {
+	doc, err := loadRequiredConfig(cmd, path)
+	if err != nil {
+		return err
+	}
+	out := cmd.OutOrStdout()
 	names := make([]string, 0, len(doc.Config.Targets)+len(doc.Config.Groups))
 	for name := range doc.Config.Targets {
 		names = append(names, name)
@@ -123,16 +169,14 @@ func runConfig(ctx context.Context, cmd *cobra.Command, args []string, input io.
 		}
 		if members, group := doc.Config.Groups[name]; group {
 			if _, err = fmt.Fprintf(out, "%s %s [group] %s\n", marker, name, strings.Join(members, ", ")); err != nil {
-				report(err)
-				return 1
+				return executionFailure(err)
 			}
 			continue
 		}
 		target := doc.Config.Targets[name]
 		if _, err = fmt.Fprintf(out, "%s %s %s %s\n", marker, name, target.Host, target.EOJ); err != nil {
-			report(err)
-			return 1
+			return executionFailure(err)
 		}
 	}
-	return 0
+	return nil
 }
