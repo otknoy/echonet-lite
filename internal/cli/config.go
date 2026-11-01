@@ -3,15 +3,14 @@ package cli
 import (
 	"context"
 	"errors"
-	"flag"
 	"fmt"
 	"io"
 	"os"
 	"sort"
 	"strings"
-	"time"
 
 	"github.com/otknoy/echonet-lite/internal/config"
+	"github.com/spf13/cobra"
 )
 
 func loadConfig(path string, explicit bool) (*config.Document, error) {
@@ -28,54 +27,15 @@ func loadConfig(path string, explicit bool) (*config.Document, error) {
 	}
 	return doc, err
 }
-func runConfig(ctx context.Context, args []string, input io.Reader, out, diagnostics io.Writer, open opener, interfaces interfaceLister) int {
+func runConfig(ctx context.Context, cmd *cobra.Command, args []string, input io.Reader, out, diagnostics io.Writer, open opener, interfaces interfaceLister, o *configOptions) int {
 	report := func(err error) { _, _ = fmt.Fprintln(diagnostics, err) }
-	if len(args) == 0 {
-		report(fmt.Errorf("expected 'config init', 'config list' or 'config use NAME'"))
-		return 2
-	}
-	command := args[0]
-	rest := args[1:]
+	command := cmd.Name()
 	name := ""
-	switch command {
-	case "init", "list":
-	case "use":
-		if len(rest) == 0 || rest[0] == "" || rest[0][0] == '-' {
-			report(fmt.Errorf("config use requires a target name"))
-			return 2
-		}
-		name = rest[0]
-		rest = rest[1:]
-	default:
-		report(fmt.Errorf("unknown config command %q", command))
-		return 2
+	if len(args) > 0 {
+		name = args[0]
 	}
-	fs := flag.NewFlagSet("config "+command, flag.ContinueOnError)
-	fs.SetOutput(diagnostics)
-	path := fs.String("config", "", "configuration file")
-	var empty, force bool
-	timeout := 3 * time.Second
-	if command == "init" {
-		fs.BoolVar(&force, "force", false, "replace an existing configuration after setup completes")
-		fs.BoolVar(&empty, "empty", false, "create an empty template without interactive setup")
-		fs.DurationVar(&timeout, "timeout", timeout, "discovery timeout")
-	}
-	if err := fs.Parse(rest); err != nil {
-		if errors.Is(err, flag.ErrHelp) {
-			return 0
-		}
-		return 2
-	}
-	if fs.NArg() != 0 {
-		report(fmt.Errorf("unexpected config arguments: %v", fs.Args()))
-		return 2
-	}
-	explicit := false
-	fs.Visit(func(f *flag.Flag) {
-		if f.Name == "config" {
-			explicit = true
-		}
-	})
+	path, empty, force, timeout := &o.path, o.empty, o.force, o.timeout
+	explicit := cmd.Flags().Changed("config")
 	if explicit && *path == "" {
 		report(fmt.Errorf("--config requires a path"))
 		return 2
