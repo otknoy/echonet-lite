@@ -2,10 +2,8 @@ package cli
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
-	"net/netip"
 	"strconv"
 	"strings"
 	"time"
@@ -34,26 +32,13 @@ func newAirconCommand(open opener, interfaces interfaceLister) *cobra.Command {
 	return air
 }
 
-func newDiscoverCommand(open opener, interfaces interfaceLister) *cobra.Command {
-	o := &airconOptions{}
-	cmd := &cobra.Command{
-		Use: "discover", Short: "Air conditioner discover",
-		Args: cobra.NoArgs, ValidArgsFunction: cobra.NoFileCompletions,
-		RunE: func(cmd *cobra.Command, args []string) error {
-			return runAircon(cmd, open, o, nil)
-		},
-	}
-	registerAirconFlags(cmd, o, interfaces)
-	return cmd
-}
-
 func newStatusCommand(open opener, interfaces interfaceLister) *cobra.Command {
 	o := &airconOptions{}
 	cmd := &cobra.Command{
 		Use: "status", Short: "Air conditioner status",
 		Args: cobra.NoArgs, ValidArgsFunction: cobra.NoFileCompletions,
-		RunE: func(cmd *cobra.Command, args []string) error {
-			return runAircon(cmd, open, o, func(ctx context.Context, ac airconControl) (*aircon.Status, error) {
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			return runAirconOperation(cmd, open, o, func(ctx context.Context, ac airconControl) (*aircon.Status, error) {
 				status, err := ac.Status(ctx)
 				return &status, err
 			})
@@ -74,7 +59,7 @@ func newPowerCommand(open opener, interfaces interfaceLister) *cobra.Command {
 				return fmt.Errorf("power must be on or off")
 			}
 			on := args[0] == "on"
-			return runAircon(cmd, open, o, func(ctx context.Context, ac airconControl) (*aircon.Status, error) {
+			return runAirconOperation(cmd, open, o, func(ctx context.Context, ac airconControl) (*aircon.Status, error) {
 				return nil, ac.SetPower(ctx, on)
 			})
 		},
@@ -94,7 +79,7 @@ func newModeCommand(open opener, interfaces interfaceLister) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			return runAircon(cmd, open, o, func(ctx context.Context, ac airconControl) (*aircon.Status, error) {
+			return runAirconOperation(cmd, open, o, func(ctx context.Context, ac airconControl) (*aircon.Status, error) {
 				return nil, ac.SetMode(ctx, mode)
 			})
 		},
@@ -114,7 +99,7 @@ func newTemperatureCommand(open opener, interfaces interfaceLister) *cobra.Comma
 			if err != nil || temperature < 0 || temperature > 50 {
 				return fmt.Errorf("temperature must be an integer from 0 to 50")
 			}
-			return runAircon(cmd, open, o, func(ctx context.Context, ac airconControl) (*aircon.Status, error) {
+			return runAirconOperation(cmd, open, o, func(ctx context.Context, ac airconControl) (*aircon.Status, error) {
 				return nil, ac.SetTemperature(ctx, temperature)
 			})
 		},
@@ -163,97 +148,63 @@ func registerTargetFlags(cmd *cobra.Command, o *airconOptions) {
 	}
 }
 
-func runAircon(cmd *cobra.Command, open opener, o *airconOptions, op operation) error {
-	ctx, out := cmd.Context(), cmd.OutOrStdout()
-	fs := cmd.Flags()
-	iface := o.iface
-	targetNames := o.targets
-	for _, name := range targetNames {
+// loadAirconConfig validates common options before reading configuration.
+func loadAirconConfig(cmd *cobra.Command, o *airconOptions) (config.Config, error) {
+	if o.timeout <= 0 {
+		return config.Config{}, fmt.Errorf("timeout must be positive")
+	}
+	if o.format != "text" && o.format != "json" {
+		return config.Config{}, fmt.Errorf("format must be text or json")
+	}
+	if cmd.Flags().Changed("config") && o.configPath == "" {
+		return config.Config{}, fmt.Errorf("--config requires a path")
+	}
+	doc, err := loadConfig(o.configPath, cmd.Flags().Changed("config"))
+	if err != nil {
+		return config.Config{}, err
+	}
+	if doc == nil {
+		return config.Config{}, nil
+	}
+	return doc.Config, nil
+}
+
+func runAirconOperation(cmd *cobra.Command, open opener, o *airconOptions, op operation) error {
+	for _, name := range o.targets {
 		if strings.TrimSpace(name) == "" {
 			return fmt.Errorf("target name must not be empty")
 		}
 	}
-	if o.timeout <= 0 {
-		return fmt.Errorf("timeout must be positive")
-	}
-	if o.format != "text" && o.format != "json" {
-		return fmt.Errorf("format must be text or json")
-	}
-
-	if fs.Changed("config") && o.configPath == "" {
-		return fmt.Errorf("--config requires a path")
-	}
-	doc, err := loadConfig(o.configPath, fs.Changed("config"))
+	cfg, err := loadAirconConfig(cmd, o)
 	if err != nil {
 		return err
 	}
-	var cfg config.Config
-	if doc != nil {
-		cfg = doc.Config
-	}
-	if op == nil && !fs.Changed("interface") {
-		iface = cfg.Interface
-	}
-	var targets []selectedTarget
-	if op != nil {
-		var named []config.NamedTarget
-		if fs.Changed("host") {
-			named = []config.NamedTarget{{Target: config.Target{Host: o.host, EOJ: o.eoj}}}
-		} else {
-			named, err = cfg.Resolve(targetNames...)
-			if err != nil {
-				return err
-			}
-		}
-		for _, target := range named {
-			address, eoj, err := config.ParseTarget(target.Target)
-			if err != nil {
-				return err
-			}
-			targets = append(targets, selectedTarget{name: target.Name, address: address, eoj: eoj})
+	var namedTargets []config.NamedTarget
+	explicitHost := cmd.Flags().Changed("host")
+	if explicitHost {
+		namedTargets = []config.NamedTarget{{Target: config.Target{Host: o.host, EOJ: o.eoj}}}
+	} else {
+		namedTargets, err = cfg.Resolve(o.targets...)
+		if err != nil {
+			return err
 		}
 	}
-	client, err := open(echonet.Options{Interface: iface, Timeout: o.timeout})
+	targets := make([]selectedTarget, 0, len(namedTargets))
+	for _, target := range namedTargets {
+		address, eoj, err := config.ParseTarget(target.Target)
+		if err != nil {
+			return err
+		}
+		targets = append(targets, selectedTarget{name: target.Name, address: address, eoj: eoj})
+	}
+	client, err := open(echonet.Options{Interface: o.iface, Timeout: o.timeout})
 	if err != nil {
 		return executionFailure(err)
 	}
-	// Client.Close is idempotent and currently always returns nil.
 	defer func() { _ = client.Close() }()
-	if op == nil {
-		nodes, requestErr := client.Discover(ctx)
-		type found struct {
-			Host netip.Addr  `json:"host"`
-			EOJ  echonet.EOJ `json:"eoj"`
-		}
-		result := []found{}
-		for _, n := range nodes {
-			for _, e := range n.Objects {
-				if aircon.IsAircon(e) {
-					result = append(result, found{n.Address, e})
-				}
-			}
-		}
-		if o.format == "json" {
-			err = json.NewEncoder(out).Encode(result)
-		} else {
-			for _, r := range result {
-				if _, err = fmt.Fprintf(out, "%s %s\n", r.Host, r.EOJ); err != nil {
-					break
-				}
-			}
-		}
-		if err != nil {
-			return executionFailure(err)
-		}
-		if requestErr != nil {
-			return executionFailure(requestErr)
-		}
-		return nil
-	}
 	_, currentIsGroup := cfg.Groups[cfg.CurrentTarget]
-	named := !fs.Changed("host") && (len(targetNames) > 0 || currentIsGroup)
-	named = named || len(targets) > 1
-	results, requestErr := operateTargets(ctx, client, targets, op, named)
-	outputErr := writeTargetResults(out, results, named, o.format)
+	named := (!explicitHost && (len(o.targets) > 0 || currentIsGroup)) || len(targets) > 1
+	results, requestErr := operateTargets(cmd.Context(), client, targets, op, named)
+	outputErr := writeTargetResults(cmd.OutOrStdout(), results, named, o.format)
 	return executionFailure(errors.Join(requestErr, outputErr))
 }
