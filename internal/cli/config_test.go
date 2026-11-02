@@ -206,3 +206,31 @@ func TestConfigInit(t *testing.T) {
 		}
 	}
 }
+
+func TestDiscoveryInterfaceOverrides(t *testing.T) {
+	path := testConfig(t)
+	for _, tc := range []struct {
+		name string
+		args []string
+		want string
+	}{
+		{"configured", nil, "eth0"},
+		{"explicit", []string{"--interface", "eth1"}, "eth1"},
+		{"automatic", []string{"--interface="}, ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var out, diag bytes.Buffer
+			client := &fakeSession{}
+			args := append([]string{"aircon", "discover", "--config", path}, tc.args...)
+			code := run(context.Background(), args, &out, &diag, func(o echonet.Options) (session, error) {
+				if o.Interface != tc.want {
+					t.Fatalf("interface=%q want=%q", o.Interface, tc.want)
+				}
+				return client, nil
+			})
+			if code != 0 || !client.closed {
+				t.Fatalf("code=%d closed=%v stderr=%s", code, client.closed, &diag)
+			}
+		})
+	}
+}

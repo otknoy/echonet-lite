@@ -17,28 +17,8 @@ type selectedTarget struct {
 	eoj     echonet.EOJ
 }
 
-type operation struct {
-	command     string
-	power       bool
-	mode        aircon.Mode
-	temperature int
-}
-
-func (op operation) execute(ctx context.Context, ac airconControl) (*aircon.Status, error) {
-	switch op.command {
-	case "status":
-		status, err := ac.Status(ctx)
-		return &status, err
-	case "power":
-		return nil, ac.SetPower(ctx, op.power)
-	case "mode":
-		return nil, ac.SetMode(ctx, op.mode)
-	case "temperature":
-		return nil, ac.SetTemperature(ctx, op.temperature)
-	default:
-		return nil, fmt.Errorf("unknown operation %q", op.command)
-	}
-}
+// operation captures validated command input before any configuration or communication.
+type operation func(context.Context, airconControl) (*aircon.Status, error)
 
 type targetResult struct {
 	Target string         `json:"target"`
@@ -73,13 +53,13 @@ func operateTargets(ctx context.Context, client session, targets []selectedTarge
 					errs[i] = ctx.Err()
 				}
 				if errs[i] == nil {
-					results[i].Status, errs[i] = op.execute(ctx, controls[i])
+					results[i].Status, errs[i] = op(ctx, controls[i])
 				}
 				switch {
 				case errs[i] != nil:
 					results[i].Result = "error"
 					results[i].Error = errs[i].Error()
-				case op.command == "status":
+				case results[i].Status != nil:
 					results[i].Result = "ok"
 				default:
 					results[i].Result = "accepted"

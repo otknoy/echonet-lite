@@ -175,3 +175,34 @@ func TestCommandsUseConfiguredOutput(t *testing.T) {
 		})
 	}
 }
+
+// Command values must be validated before configuration loading or target resolution.
+func TestOperationInputBeforeConfiguration(t *testing.T) {
+	for _, selection := range [][]string{
+		nil,
+		{"--config", "does-not-exist.yaml"},
+	} {
+		for _, tc := range []struct {
+			args []string
+			want string
+		}{
+			{[]string{"power", "yes"}, "power must be on or off"},
+			{[]string{"mode", "other"}, "mode must be"},
+			{[]string{"temperature", "51"}, "temperature must be"},
+			{[]string{"temperature", "26.5"}, "temperature must be"},
+		} {
+			args := append([]string{"aircon"}, tc.args...)
+			args = append(args, selection...)
+			t.Run(strings.Join(args, " "), func(t *testing.T) {
+				var out, diag bytes.Buffer
+				code := run(context.Background(), args, &out, &diag, func(echonet.Options) (session, error) {
+					t.Fatal("invalid input must not open a session")
+					return nil, nil
+				})
+				if code != 2 || out.Len() != 0 || !strings.Contains(diag.String(), tc.want) {
+					t.Fatalf("code=%d stdout=%q stderr=%q", code, &out, &diag)
+				}
+			})
+		}
+	}
+}
