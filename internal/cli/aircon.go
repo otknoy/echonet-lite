@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -39,7 +40,7 @@ func newDiscoverCommand(open opener, interfaces interfaceLister) *cobra.Command 
 		Use: "discover", Short: "Air conditioner discover",
 		Args: cobra.NoArgs, ValidArgsFunction: cobra.NoFileCompletions,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runAircon(cmd, args, open, o)
+			return runAircon(cmd, open, o, nil)
 		},
 	}
 	registerAirconFlags(cmd, o, interfaces)
@@ -52,7 +53,10 @@ func newStatusCommand(open opener, interfaces interfaceLister) *cobra.Command {
 		Use: "status", Short: "Air conditioner status",
 		Args: cobra.NoArgs, ValidArgsFunction: cobra.NoFileCompletions,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runAircon(cmd, args, open, o)
+			return runAircon(cmd, open, o, func(ctx context.Context, ac airconControl) (*aircon.Status, error) {
+				status, err := ac.Status(ctx)
+				return &status, err
+			})
 		},
 	}
 	registerAirconFlags(cmd, o, interfaces)
@@ -66,7 +70,13 @@ func newPowerCommand(open opener, interfaces interfaceLister) *cobra.Command {
 		Use: "power on|off", Short: "Air conditioner power",
 		Args: cobra.ExactArgs(1), ValidArgsFunction: positionalValues("on", "off"),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runAircon(cmd, args, open, o)
+			if args[0] != "on" && args[0] != "off" {
+				return fmt.Errorf("power must be on or off")
+			}
+			on := args[0] == "on"
+			return runAircon(cmd, open, o, func(ctx context.Context, ac airconControl) (*aircon.Status, error) {
+				return nil, ac.SetPower(ctx, on)
+			})
 		},
 	}
 	registerAirconFlags(cmd, o, interfaces)
@@ -80,7 +90,13 @@ func newModeCommand(open opener, interfaces interfaceLister) *cobra.Command {
 		Use: "mode auto|cool|heat|dry|fan", Short: "Air conditioner mode",
 		Args: cobra.ExactArgs(1), ValidArgsFunction: positionalValues("auto", "cool", "heat", "dry", "fan"),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runAircon(cmd, args, open, o)
+			mode, err := aircon.ParseMode(args[0])
+			if err != nil {
+				return err
+			}
+			return runAircon(cmd, open, o, func(ctx context.Context, ac airconControl) (*aircon.Status, error) {
+				return nil, ac.SetMode(ctx, mode)
+			})
 		},
 	}
 	registerAirconFlags(cmd, o, interfaces)
@@ -94,7 +110,13 @@ func newTemperatureCommand(open opener, interfaces interfaceLister) *cobra.Comma
 		Use: "temperature VALUE", Short: "Air conditioner temperature",
 		Args: cobra.ExactArgs(1), ValidArgsFunction: cobra.NoFileCompletions,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runAircon(cmd, args, open, o)
+			temperature, err := strconv.Atoi(args[0])
+			if err != nil || temperature < 0 || temperature > 50 {
+				return fmt.Errorf("temperature must be an integer from 0 to 50")
+			}
+			return runAircon(cmd, open, o, func(ctx context.Context, ac airconControl) (*aircon.Status, error) {
+				return nil, ac.SetTemperature(ctx, temperature)
+			})
 		},
 	}
 	registerAirconFlags(cmd, o, interfaces)
@@ -141,13 +163,8 @@ func registerTargetFlags(cmd *cobra.Command, o *airconOptions) {
 	}
 }
 
-func runAircon(cmd *cobra.Command, args []string, open opener, o *airconOptions) error {
+func runAircon(cmd *cobra.Command, open opener, o *airconOptions, op operation) error {
 	ctx, out := cmd.Context(), cmd.OutOrStdout()
-	command := cmd.Name()
-	value := ""
-	if len(args) > 0 {
-		value = args[0]
-	}
 	fs := cmd.Flags()
 	iface := o.iface
 	targetNames := o.targets
@@ -174,13 +191,11 @@ func runAircon(cmd *cobra.Command, args []string, open opener, o *airconOptions)
 	if doc != nil {
 		cfg = doc.Config
 	}
-	if command == "discover" && !fs.Changed("interface") {
+	if op == nil && !fs.Changed("interface") {
 		iface = cfg.Interface
 	}
 	var targets []selectedTarget
-	var mode aircon.Mode
-	var temperature int
-	if command != "discover" {
+	if op != nil {
 		var named []config.NamedTarget
 		if fs.Changed("host") {
 			named = []config.NamedTarget{{Target: config.Target{Host: o.host, EOJ: o.eoj}}}
@@ -198,29 +213,13 @@ func runAircon(cmd *cobra.Command, args []string, open opener, o *airconOptions)
 			targets = append(targets, selectedTarget{name: target.Name, address: address, eoj: eoj})
 		}
 	}
-	switch command {
-	case "power":
-		if value != "on" && value != "off" {
-			return fmt.Errorf("power must be on or off")
-		}
-	case "mode":
-		mode, err = aircon.ParseMode(value)
-		if err != nil {
-			return err
-		}
-	case "temperature":
-		temperature, err = strconv.Atoi(value)
-		if err != nil || temperature < 0 || temperature > 50 {
-			return fmt.Errorf("temperature must be an integer from 0 to 50")
-		}
-	}
 	client, err := open(echonet.Options{Interface: iface, Timeout: o.timeout})
 	if err != nil {
 		return executionFailure(err)
 	}
 	// Client.Close is idempotent and currently always returns nil.
 	defer func() { _ = client.Close() }()
-	if command == "discover" {
+	if op == nil {
 		nodes, requestErr := client.Discover(ctx)
 		type found struct {
 			Host netip.Addr  `json:"host"`
@@ -253,7 +252,6 @@ func runAircon(cmd *cobra.Command, args []string, open opener, o *airconOptions)
 	}
 	_, currentIsGroup := cfg.Groups[cfg.CurrentTarget]
 	named := !fs.Changed("host") && (len(targetNames) > 0 || currentIsGroup)
-	op := operation{command: command, power: value == "on", mode: mode, temperature: temperature}
 	named = named || len(targets) > 1
 	results, requestErr := operateTargets(ctx, client, targets, op, named)
 	outputErr := writeTargetResults(out, results, named, o.format)
