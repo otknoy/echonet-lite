@@ -20,39 +20,56 @@ type configOptions struct {
 
 func newConfigCommand(open opener, interfaces interfaceLister) *cobra.Command {
 	cfg := &cobra.Command{Use: "config", Short: "Manage configured targets", RunE: requireSubcommand}
-	for _, name := range []string{"init", "list", "use"} {
-		o := &configOptions{timeout: 3 * time.Second}
-		cmd := &cobra.Command{Use: name, Short: "Configuration " + name, Args: cobra.NoArgs, ValidArgsFunction: cobra.NoFileCompletions}
-		cmd.Flags().StringVar(&o.path, "config", "", "configuration file")
-		switch name {
-		case "init":
-			cmd.Flags().BoolVar(&o.empty, "empty", false, "create an empty template without interactive setup")
-			cmd.Flags().BoolVar(&o.force, "force", false, "replace an existing configuration after setup completes")
-			cmd.Flags().DurationVar(&o.timeout, "timeout", 3*time.Second, "discovery timeout")
-			mustRegisterCompletion(cmd, "timeout", cobra.NoFileCompletions)
-			cmd.RunE = func(cmd *cobra.Command, _ []string) error {
-				return runConfigInit(cmd, open, interfaces, o)
-			}
-		case "list":
-			cmd.RunE = func(cmd *cobra.Command, _ []string) error {
-				return runConfigList(cmd, o.path)
-			}
-		case "use":
-			cmd.Use += " NAME"
-			cmd.Args = cobra.ExactArgs(1)
-			cmd.ValidArgsFunction = func(cmd *cobra.Command, args []string, prefix string) ([]string, cobra.ShellCompDirective) {
-				if len(args) != 0 {
-					return nil, cobra.ShellCompDirectiveNoFileComp
-				}
-				return completeTargets(cmd, args, prefix)
-			}
-			cmd.RunE = func(cmd *cobra.Command, args []string) error {
-				return runConfigUse(cmd, args[0], o.path)
-			}
-		}
-		cfg.AddCommand(cmd)
-	}
+	cfg.AddCommand(newConfigInitCommand(open, interfaces), newConfigListCommand(), newConfigUseCommand())
 	return cfg
+}
+
+func newConfigInitCommand(open opener, interfaces interfaceLister) *cobra.Command {
+	o := &configOptions{}
+	cmd := &cobra.Command{
+		Use: "init", Short: "Configuration init",
+		Args: cobra.NoArgs, ValidArgsFunction: cobra.NoFileCompletions,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			return runConfigInit(cmd, open, interfaces, o)
+		},
+	}
+	cmd.Flags().StringVar(&o.path, "config", "", "configuration file")
+	cmd.Flags().BoolVar(&o.empty, "empty", false, "create an empty template without interactive setup")
+	cmd.Flags().BoolVar(&o.force, "force", false, "replace an existing configuration after setup completes")
+	cmd.Flags().DurationVar(&o.timeout, "timeout", 3*time.Second, "discovery timeout")
+	mustRegisterCompletion(cmd, "timeout", cobra.NoFileCompletions)
+	return cmd
+}
+
+func newConfigListCommand() *cobra.Command {
+	var path string
+	cmd := &cobra.Command{
+		Use: "list", Short: "Configuration list",
+		Args: cobra.NoArgs, ValidArgsFunction: cobra.NoFileCompletions,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			return runConfigList(cmd, path)
+		},
+	}
+	cmd.Flags().StringVar(&path, "config", "", "configuration file")
+	return cmd
+}
+
+func newConfigUseCommand() *cobra.Command {
+	var path string
+	cmd := &cobra.Command{
+		Use: "use NAME", Short: "Configuration use", Args: cobra.ExactArgs(1),
+		ValidArgsFunction: func(cmd *cobra.Command, args []string, prefix string) ([]string, cobra.ShellCompDirective) {
+			if len(args) != 0 {
+				return nil, cobra.ShellCompDirectiveNoFileComp
+			}
+			return completeTargets(cmd, args, prefix)
+		},
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runConfigUse(cmd, args[0], path)
+		},
+	}
+	cmd.Flags().StringVar(&path, "config", "", "configuration file")
+	return cmd
 }
 
 func loadConfig(path string, explicit bool) (*config.Document, error) {
