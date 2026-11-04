@@ -42,6 +42,7 @@ func (c *Client) register(p *pending) (uint16, error) {
 	}
 	return 0, ErrBusy
 }
+
 func (c *Client) unregister(id uint16) {
 	c.mu.Lock()
 	delete(c.pending, id)

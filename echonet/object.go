@@ -23,6 +23,7 @@ func validProperties(ps []Property, write bool) error {
 	}
 	return nil
 }
+
 func (o *Object) Get(ctx context.Context, epcs ...EPC) (*Response, error) {
 	ps := make([]Property, len(epcs))
 	for i, e := range epcs {
@@ -30,9 +31,11 @@ func (o *Object) Get(ctx context.Context, epcs ...EPC) (*Response, error) {
 	}
 	return o.request(ctx, Get, ps)
 }
+
 func (o *Object) SetC(ctx context.Context, ps ...Property) (*Response, error) {
 	return o.request(ctx, SetC, ps)
 }
+
 func (o *Object) request(ctx context.Context, esv ESV, ps []Property) (*Response, error) {
 	if !netutil.IsUnicastIPv4(o.node.address) || o.eoj[2] == 0 {
 		return nil, fmt.Errorf("%w: unicast IP and concrete EOJ required", ErrInvalid)

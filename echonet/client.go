@@ -51,6 +51,7 @@ func Open(options Options) (*Client, error) {
 	}
 	return newClient(t, ip, options.Timeout), nil
 }
+
 func newClient(t packetTransport, ip netip.Addr, timeout time.Duration) *Client {
 	if timeout == 0 {
 		timeout = 3 * time.Second
@@ -64,7 +65,9 @@ func newClient(t packetTransport, ip netip.Addr, timeout time.Duration) *Client 
 	go c.serveLocal()
 	return c
 }
+
 func (c *Client) Node(address netip.Addr) *Node { return &Node{client: c, address: address.Unmap()} }
+
 func (c *Client) stop(err error) {
 	c.closeOnce.Do(func() {
 		c.mu.Lock()
@@ -75,5 +78,7 @@ func (c *Client) stop(err error) {
 		_ = c.transport.Close()
 	})
 }
-func (c *Client) Close() error   { c.stop(ErrClosed); c.workers.Wait(); return nil }
+
+func (c *Client) Close() error { c.stop(ErrClosed); c.workers.Wait(); return nil }
+
 func (c *Client) failure() error { c.mu.Lock(); defer c.mu.Unlock(); return c.terminal }
