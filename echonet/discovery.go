@@ -27,6 +27,7 @@ func (c *Client) Discover(ctx context.Context) ([]DiscoveredNode, error) {
 	}
 	return c.discover(ctx, multicast)
 }
+
 func (c *Client) discover(ctx context.Context, target netip.Addr) ([]DiscoveredNode, error) {
 	p := &pending{address: target, discovery: true, request: frame{seoj: controllerEOJ, deoj: nodeEOJ, esv: Get, properties: []Property{{EPC: 0xd6}}}, responses: make(chan *Response, 256)}
 	window, cancel := context.WithTimeout(ctx, c.timeout)
@@ -77,6 +78,7 @@ func (c *Client) collectDiscovery(ctx, window context.Context, p *pending) ([]Di
 		}
 	}
 }
+
 func parseInstances(b []byte) ([]EOJ, error) {
 	// D6 may report a total larger than the entries included in this frame.
 	if len(b) < 1 || (len(b)-1)%3 != 0 || (len(b)-1)/3 > 84 || (len(b)-1)/3 > int(b[0]) {
@@ -90,72 +92,6 @@ func parseInstances(b []byte) ([]EOJ, error) {
 			return nil, fmt.Errorf("wildcard instance in list")
 		}
 		out = append(out, e)
-	}
-	return out, nil
-}
-
-// PropertyMaps reports advertised access capabilities. Unknown maps are nil, not empty.
-type PropertyMaps struct {
-	Get          []EPC
-	Set          []EPC
-	Announcement []EPC
-}
-
-func (o *Object) PropertyMaps(ctx context.Context) (PropertyMaps, error) {
-	r, requestErr := o.Get(ctx, GetPropertyMap, SetPropertyMap, AnnouncementPropertyMap)
-	var maps PropertyMaps
-	if r == nil {
-		return maps, requestErr
-	}
-	for _, entry := range []struct {
-		epc EPC
-		dst *[]EPC
-	}{{GetPropertyMap, &maps.Get}, {SetPropertyMap, &maps.Set}, {AnnouncementPropertyMap, &maps.Announcement}} {
-		b, ok := r.Property(entry.epc)
-		if !ok || len(b) == 0 {
-			continue
-		}
-		v, err := parsePropertyMap(b)
-		if err != nil {
-			return maps, fmt.Errorf("EPC %02x: %w", entry.epc, err)
-		}
-		*entry.dst = v
-	}
-	return maps, requestErr
-}
-func parsePropertyMap(b []byte) ([]EPC, error) {
-	if len(b) == 0 {
-		return nil, fmt.Errorf("missing property map")
-	}
-	n := int(b[0])
-	out := make([]EPC, 0, n)
-	if n < 16 {
-		if len(b) != n+1 {
-			return nil, fmt.Errorf("invalid list map length")
-		}
-		seen := map[EPC]bool{}
-		for _, v := range b[1:] {
-			e := EPC(v)
-			if v < 0x80 || seen[e] {
-				return nil, fmt.Errorf("invalid property map entry")
-			}
-			seen[e] = true
-			out = append(out, e)
-		}
-	} else {
-		if len(b) != 17 {
-			return nil, fmt.Errorf("invalid bitmap length")
-		}
-		for low, v := range b[1:] {
-			for high := 0; high < 8; high++ {
-				if v&(1<<high) != 0 {
-					out = append(out, EPC((high+8)*16+low))
-				}
-			}
-		}
-		if len(out) != n {
-			return nil, fmt.Errorf("bitmap count mismatch")
-		}
 	}
 	return out, nil
 }
