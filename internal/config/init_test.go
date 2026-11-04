@@ -104,3 +104,53 @@ func TestForceInitPreservesSymlink(t *testing.T) {
 		t.Fatal(doc, err)
 	}
 }
+
+func TestConcurrentInitPublishesOneCompleteFile(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	results := make(chan error, 16)
+	for range 16 {
+		go func() { results <- Init(path, false) }()
+	}
+	successes := 0
+	for range 16 {
+		err := <-results
+		if err == nil {
+			successes++
+		} else if !errors.Is(err, os.ErrExist) {
+			t.Fatal(err)
+		}
+	}
+	if successes != 1 {
+		t.Fatalf("successful creators: %d", successes)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil || string(data) != initialConfig {
+		t.Fatalf("incomplete configuration: %q, %v", data, err)
+	}
+	entries, err := os.ReadDir(filepath.Dir(path))
+	if err != nil || len(entries) != 1 {
+		t.Fatalf("temporary files remain: %v, %v", entries, err)
+	}
+}
+
+func TestFailedPublicationLeavesNoConfig(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	injected := errors.New("publication failed")
+	err := atomicWrite(path, []byte(initialConfig), 0o600, func(temp, destination string) error {
+		data, err := os.ReadFile(temp)
+		if err != nil || string(data) != initialConfig {
+			t.Fatalf("incomplete temporary file: %v", err)
+		}
+		if _, err := os.Stat(destination); !errors.Is(err, os.ErrNotExist) {
+			t.Fatalf("destination published early: %v", err)
+		}
+		return injected
+	})
+	if !errors.Is(err, injected) {
+		t.Fatal(err)
+	}
+	entries, err := os.ReadDir(filepath.Dir(path))
+	if err != nil || len(entries) != 0 {
+		t.Fatalf("files remain after failure: %v, %v", entries, err)
+	}
+}
