@@ -170,40 +170,15 @@ func loadAirconConfig(cmd *cobra.Command, o *airconOptions) (config.Config, erro
 }
 
 func runAirconOperation(cmd *cobra.Command, open opener, o *airconOptions, op operation) error {
-	for _, name := range o.targets {
-		if !config.ValidName(name) {
-			return fmt.Errorf("target name must not be empty")
-		}
-	}
-	cfg, err := loadAirconConfig(cmd, o)
+	targets, named, err := resolveAirconTargets(cmd, o)
 	if err != nil {
 		return err
-	}
-	var namedTargets []config.NamedTarget
-	explicitHost := cmd.Flags().Changed("host")
-	if explicitHost {
-		namedTargets = []config.NamedTarget{{Target: config.Target{Host: o.host, EOJ: o.eoj}}}
-	} else {
-		namedTargets, err = cfg.Resolve(o.targets...)
-		if err != nil {
-			return err
-		}
-	}
-	targets := make([]selectedTarget, 0, len(namedTargets))
-	for _, target := range namedTargets {
-		address, eoj, err := config.ParseTarget(target.Target)
-		if err != nil {
-			return err
-		}
-		targets = append(targets, selectedTarget{name: target.Name, address: address, eoj: eoj})
 	}
 	client, err := open(echonet.Options{Interface: o.iface, Timeout: o.timeout})
 	if err != nil {
 		return executionFailure(err)
 	}
 	defer func() { _ = client.Close() }()
-	_, currentIsGroup := cfg.Groups[cfg.CurrentTarget]
-	named := (!explicitHost && (len(o.targets) > 0 || currentIsGroup)) || len(targets) > 1
 	results, requestErr := operateTargets(cmd.Context(), client, targets, op, named)
 	outputErr := writeTargetResults(cmd.OutOrStdout(), results, named, o.format)
 	return executionFailure(errors.Join(requestErr, outputErr))
