@@ -69,26 +69,10 @@ func create(path string, data []byte, force bool) error {
 		}
 		return atomicWrite(path, data, mode, os.Rename)
 	}
-	file, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
-	if err != nil {
+	// Linking a completed temporary file publishes it atomically without
+	// replacing an existing file, including a dangling symlink.
+	if err := atomicWrite(path, data, 0o600, os.Link); err != nil {
 		return fmt.Errorf("create config %s: %w", path, err)
 	}
-	complete := false
-	defer func() {
-		_ = file.Close()
-		if !complete {
-			_ = os.Remove(path)
-		}
-	}()
-	if _, err = file.Write(data); err != nil {
-		return err
-	}
-	if err = file.Sync(); err != nil {
-		return err
-	}
-	if err = file.Close(); err != nil {
-		return err
-	}
-	complete = true
 	return nil
 }

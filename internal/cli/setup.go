@@ -141,7 +141,7 @@ func (p *prompt) name(targets map[string]config.Target) (string, error) {
 			return "", err
 		}
 		_, duplicate := targets[name]
-		if name != "" && !strings.HasPrefix(name, "-") && !duplicate {
+		if config.ValidName(name) && !strings.HasPrefix(name, "-") && !duplicate {
 			return name, nil
 		}
 		if _, err := fmt.Fprintln(p.output, "空欄・重複・先頭が '-' の名前は使えません。"); err != nil {
