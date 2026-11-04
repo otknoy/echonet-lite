@@ -41,11 +41,11 @@ func (c *Client) discover(ctx context.Context, target netip.Addr) ([]DiscoveredN
 	if err != nil {
 		return nil, err
 	}
-	if err = c.transport.WritePacket(b, target); err != nil {
-		return nil, err
-	}
 	window, cancel := context.WithTimeout(ctx, c.timeout)
 	defer cancel()
+	if err = c.transport.WritePacket(window, b, target); err != nil {
+		return nil, err
+	}
 	nodes := map[netip.Addr]map[EOJ]bool{}
 	snapshot := func() []DiscoveredNode {
 		out := make([]DiscoveredNode, 0, len(nodes))

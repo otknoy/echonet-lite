@@ -137,7 +137,7 @@ func (d *Document) Use(name string) error {
 	d.Config.CurrentTarget = name
 	return nil
 }
-func atomicWrite(path string, data []byte, mode os.FileMode, rename func(string, string) error) error {
+func atomicWrite(path string, data []byte, mode os.FileMode, publish func(string, string) error) error {
 	file, err := os.CreateTemp(filepath.Dir(path), ".echonet-config-*")
 	if err != nil {
 		return err
@@ -155,5 +155,5 @@ func atomicWrite(path string, data []byte, mode os.FileMode, rename func(string,
 	if err = file.Close(); err != nil {
 		return err
 	}
-	return rename(file.Name(), path)
+	return publish(file.Name(), path)
 }

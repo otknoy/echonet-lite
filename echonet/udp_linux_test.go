@@ -4,6 +4,7 @@ package echonet
 
 import (
 	"bytes"
+	"context"
 	"encoding/binary"
 	"errors"
 	"net"
@@ -56,12 +57,17 @@ func TestUDPTransportLoopback(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	transmit := &udpTransport{conn: sender, index: iface.Index, source: [4]byte{127, 0, 0, 2}}
+	transmit := &udpTransport{conn: sender, sendGate: make(chan struct{}, 1), index: iface.Index, source: [4]byte{127, 0, 0, 2}}
 	receive := &udpTransport{conn: server, index: iface.Index, source: [4]byte{127, 0, 0, 1}}
 	if err = server.SetReadDeadline(time.Now().Add(time.Second)); err != nil {
 		t.Fatal(err)
 	}
-	if err = transmit.WritePacket([]byte("test"), netip.MustParseAddr("127.0.0.1")); err != nil {
+	cancelled, cancel := context.WithCancel(context.Background())
+	cancel()
+	if err := transmit.WritePacket(cancelled, []byte("cancelled"), peer); !errors.Is(err, context.Canceled) {
+		t.Fatal(err)
+	}
+	if err = transmit.WritePacket(context.Background(), []byte("test"), netip.MustParseAddr("127.0.0.1")); err != nil {
 		t.Fatal(err)
 	}
 	data, from, err := receive.ReadPacket()
@@ -123,5 +129,18 @@ func TestReceiveWithoutPinnedInterface(t *testing.T) {
 	binary.NativeEndian.PutUint32(packetInfo[:4], 8)
 	if !explicit.acceptPacketInfo(packetInfo, netip.MustParseAddr("192.0.2.10")) {
 		t.Fatal("explicit mode rejected matching interface")
+	}
+}
+
+func TestSendGateCancellation(t *testing.T) {
+	u := &udpTransport{sendGate: make(chan struct{}, 1)}
+	u.sendGate <- struct{}{}
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
+	defer cancel()
+	if err := u.WritePacket(ctx, []byte("test"), peer); !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("queued send: %v", err)
+	}
+	if len(u.sendGate) != 1 {
+		t.Fatal("cancelled waiter released another send's gate")
 	}
 }

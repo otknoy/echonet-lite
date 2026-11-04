@@ -23,7 +23,7 @@ type Options struct {
 }
 type packetTransport interface {
 	ReadPacket() ([]byte, netip.Addr, error)
-	WritePacket([]byte, netip.Addr) error
+	WritePacket(context.Context, []byte, netip.Addr) error
 	Close() error
 }
 type pending struct {
@@ -175,7 +175,7 @@ func (o *Object) request(ctx context.Context, esv ESV, ps []Property) (*Response
 	if err = ctx.Err(); err != nil {
 		return nil, err
 	}
-	if err = c.transport.WritePacket(b, p.address); err != nil {
+	if err = c.transport.WritePacket(ctx, b, p.address); err != nil {
 		return nil, err
 	}
 	unknown := func(err error) (*Response, error) {
