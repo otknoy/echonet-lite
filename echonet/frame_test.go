@@ -85,8 +85,14 @@ func TestPropertyMapFormats(t *testing.T) {
 	}
 }
 func FuzzParseFrame(f *testing.F) {
-	seed, _ := hex.DecodeString("1081000105ff010ef0016201d600")
-	f.Add(seed)
+	for _, wire := range []string{
+		"1081000105ff010ef0016201d600", "1081000205ff010130016e0180013001bb00",
+		"1081000201300105ff015e0000", "1081000105ff010ef0016200",
+		"1081000105ff010ef0016201d60200", "1081000105ff010ef0016201d60000",
+	} {
+		seed, _ := hex.DecodeString(wire)
+		f.Add(seed)
+	}
 	f.Fuzz(func(t *testing.T, b []byte) {
 		parsed, err := parseFrame(b)
 		if err != nil {
@@ -109,4 +115,54 @@ func TestUnsupportedSetGetZeroCounts(t *testing.T) {
 	if err != nil || !bytes.Equal(got, wire) {
 		t.Fatalf("%x %v", got, err)
 	}
+}
+
+func FuzzParseInstances(f *testing.F) {
+	for _, seed := range [][]byte{nil, {0}, {1, 1, 0x30, 1}, {2, 1, 0x30, 1}, {1, 1, 0x30, 0}, {2, 1, 0x30, 1, 0}} {
+		f.Add(seed)
+	}
+	f.Fuzz(func(t *testing.T, b []byte) {
+		objects, err := parseInstances(b)
+		if err != nil {
+			return
+		}
+		if len(b) != 1+3*len(objects) || len(objects) > int(b[0]) || len(objects) > 84 {
+			t.Fatalf("invalid accepted list: %x", b)
+		}
+		for i, e := range objects {
+			if e[2] == 0 || !bytes.Equal(e[:], b[1+3*i:4+3*i]) {
+				t.Fatalf("invalid decoded instance: %x", b)
+			}
+		}
+	})
+}
+
+func FuzzParsePropertyMap(f *testing.F) {
+	for _, seed := range [][]byte{nil, {0}, {2, 0x80, 0xb0}, {2, 0x80}, {2, 0x80, 0x80}, {1, 1}, {16, 255, 255, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}} {
+		f.Add(seed)
+	}
+	f.Fuzz(func(t *testing.T, b []byte) {
+		epcs, err := parsePropertyMap(b)
+		if err != nil {
+			return
+		}
+		if len(epcs) != int(b[0]) {
+			t.Fatalf("count mismatch: %x", b)
+		}
+		seen := map[EPC]bool{}
+		for _, epc := range epcs {
+			if epc < 0x80 || seen[epc] {
+				t.Fatalf("invalid/duplicate EPC: %x", b)
+			}
+			seen[epc] = true
+		}
+		if b[0] >= 16 {
+			for epc := 0x80; epc <= 0xff; epc++ {
+				want := b[1+epc%16]&(1<<(epc/16-8)) != 0
+				if seen[EPC(epc)] != want {
+					t.Fatalf("bitmap mismatch: %x", b)
+				}
+			}
+		}
+	})
 }
