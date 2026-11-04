@@ -29,23 +29,17 @@ func (c *Client) Discover(ctx context.Context) ([]DiscoveredNode, error) {
 }
 func (c *Client) discover(ctx context.Context, target netip.Addr) ([]DiscoveredNode, error) {
 	p := &pending{address: target, discovery: true, request: frame{seoj: controllerEOJ, deoj: nodeEOJ, esv: Get, properties: []Property{{EPC: 0xd6}}}, responses: make(chan *Response, 256)}
-	if err := ctx.Err(); err != nil {
-		return nil, err
-	}
-	id, err := c.register(p)
-	if err != nil {
-		return nil, err
-	}
-	defer c.unregister(id)
-	b, err := p.request.marshal()
-	if err != nil {
-		return nil, err
-	}
-	if err = c.transport.WritePacket(b, target); err != nil {
-		return nil, err
-	}
 	window, cancel := context.WithTimeout(ctx, c.timeout)
 	defer cancel()
+	release, err := c.sendPending(window, p)
+	if err != nil {
+		return nil, err
+	}
+	defer release()
+	return c.collectDiscovery(ctx, window, p)
+}
+
+func (c *Client) collectDiscovery(ctx, window context.Context, p *pending) ([]DiscoveredNode, error) {
 	nodes := map[netip.Addr]map[EOJ]bool{}
 	snapshot := func() []DiscoveredNode {
 		out := make([]DiscoveredNode, 0, len(nodes))

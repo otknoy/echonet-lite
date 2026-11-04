@@ -84,3 +84,16 @@ func TestUseGroupPreservesConfiguration(t *testing.T) {
 		t.Fatal("lost group comments", err)
 	}
 }
+
+func TestValidName(t *testing.T) {
+	for _, name := range []string{"", " ", "\t\n"} {
+		if ValidName(name) {
+			t.Errorf("accepted blank name %q", name)
+		}
+	}
+	for _, name := range []string{"living", "居間", "-legacy", "a,b", " spaced "} {
+		if !ValidName(name) {
+			t.Errorf("rejected existing name %q", name)
+		}
+	}
+}

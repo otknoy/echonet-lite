@@ -67,7 +67,7 @@ func (c Config) Has(name string) bool {
 }
 func (c Config) Validate() error {
 	for name, target := range c.Targets {
-		if strings.TrimSpace(name) == "" {
+		if !ValidName(name) {
 			return fmt.Errorf("config: target name must not be empty")
 		}
 		if _, _, err := ParseTarget(target); err != nil {
@@ -75,7 +75,7 @@ func (c Config) Validate() error {
 		}
 	}
 	for name, members := range c.Groups {
-		if strings.TrimSpace(name) == "" {
+		if !ValidName(name) {
 			return fmt.Errorf("config: group name must not be empty")
 		}
 		if _, exists := c.Targets[name]; exists {
@@ -95,3 +95,7 @@ func (c Config) Validate() error {
 	}
 	return nil
 }
+
+// ValidName checks the shared rule for configured target and group names.
+// Interactive registration additionally excludes names starting with a dash.
+func ValidName(name string) bool { return strings.TrimSpace(name) != "" }

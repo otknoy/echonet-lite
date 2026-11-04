@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"fmt"
+	"github.com/otknoy/echonet-lite/internal/netutil"
 	"net/netip"
 	"sync"
 	"time"
@@ -22,7 +23,7 @@ type Options struct {
 }
 type packetTransport interface {
 	ReadPacket() ([]byte, netip.Addr, error)
-	WritePacket([]byte, netip.Addr) error
+	WritePacket(context.Context, []byte, netip.Addr) error
 	Close() error
 }
 type pending struct {
@@ -149,7 +150,7 @@ func (o *Object) SetC(ctx context.Context, ps ...Property) (*Response, error) {
 	return o.request(ctx, SetC, ps)
 }
 func (o *Object) request(ctx context.Context, esv ESV, ps []Property) (*Response, error) {
-	if !o.node.address.Is4() || o.node.address.IsMulticast() || o.node.address.IsUnspecified() || o.node.address == netip.MustParseAddr("255.255.255.255") || o.eoj[2] == 0 {
+	if !netutil.IsUnicastIPv4(o.node.address) || o.eoj[2] == 0 {
 		return nil, fmt.Errorf("%w: unicast IP and concrete EOJ required", ErrInvalid)
 	}
 	if err := validProperties(ps, esv == SetC); err != nil {
@@ -162,21 +163,11 @@ func (o *Object) request(ctx context.Context, esv ESV, ps []Property) (*Response
 		return nil, err
 	}
 	p := &pending{address: o.node.address, request: frame{seoj: controllerEOJ, deoj: o.eoj, esv: esv, properties: ps}, responses: make(chan *Response, 1)}
-	id, err := c.register(p)
+	release, err := c.sendPending(ctx, p)
 	if err != nil {
 		return nil, err
 	}
-	defer c.unregister(id)
-	b, err := p.request.marshal()
-	if err != nil {
-		return nil, err
-	}
-	if err = ctx.Err(); err != nil {
-		return nil, err
-	}
-	if err = c.transport.WritePacket(b, p.address); err != nil {
-		return nil, err
-	}
+	defer release()
 	unknown := func(err error) (*Response, error) {
 		if esv == SetC {
 			return nil, &SettingUnknownError{err}
@@ -261,4 +252,33 @@ func (c *Client) receive() {
 		}
 		c.mu.Unlock()
 	}
+}
+
+// sendPending registers before transmission so an immediate reply cannot be lost.
+// The caller owns release only after successful transmission.
+func (c *Client) sendPending(ctx context.Context, p *pending) (release func(), err error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	id, err := c.register(p)
+	if err != nil {
+		return nil, err
+	}
+	cleanup := func() { c.unregister(id) }
+	defer func() {
+		if err != nil {
+			cleanup()
+		}
+	}()
+	b, err := p.request.marshal()
+	if err != nil {
+		return nil, err
+	}
+	if err = ctx.Err(); err != nil {
+		return nil, err
+	}
+	if err = c.transport.WritePacket(ctx, b, p.address); err != nil {
+		return nil, err
+	}
+	return cleanup, nil
 }
