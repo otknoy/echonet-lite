@@ -9,6 +9,14 @@ go build -o /tmp/echonet ./cmd/echonet
 go install ./cmd/echonet
 ```
 
+電文・インスタンスリスト・プロパティマップの fuzz テストは、通常のテストで初期データを検証する。入力を生成して継続実行する場合は、対象ごとに次を実行する。
+
+```sh
+go test ./echonet -run '^$' -fuzz '^FuzzParseFrame$' -fuzztime 10s
+go test ./echonet -run '^$' -fuzz '^FuzzParseInstances$' -fuzztime 10s
+go test ./echonet -run '^$' -fuzz '^FuzzParsePropertyMap$' -fuzztime 10s
+```
+
 テストは仮想機器と Linux のループバック UDP を使用し、実機を自動で探索・操作しない。
 ソケット作成が禁止された環境や3610使用中の場合、ループバック試験はスキップされる。
 キャッシュ先に書き込めない場合は、実行環境の書き込み可能な一時ディレクトリを指定する。
