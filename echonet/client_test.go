@@ -514,3 +514,71 @@ func TestSetCancellationAfterSendIsUnknownWithoutRetry(t *testing.T) {
 		}
 	}
 }
+
+func TestDiscoveryCancellationReleasesPending(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	c, f := testClient(t, nil)
+	finished := make(chan struct{})
+	var nodes []DiscoveredNode
+	var err error
+	go func() { nodes, err = c.Discover(ctx); close(finished) }()
+	var request frame
+	timer := time.NewTimer(time.Second)
+	defer timer.Stop()
+waitForRequest:
+	for {
+		select {
+		case p := <-f.outgoing:
+			request, _ = parseFrame(p.data)
+			if request.esv == Get {
+				break waitForRequest
+			}
+		case <-timer.C:
+			t.Fatal("discovery request did not start")
+		}
+	}
+	f.inject(reply(request, []Property{{0xd6, []byte{1, 1, 0x30, 1}}}, GetRes), peer)
+	// Cancellation may race collection, so only assert the cancellation contract;
+	// the normal timeout/deduplication test covers the collected snapshot.
+	cancel()
+	select {
+	case <-finished:
+	case <-time.After(time.Second):
+		t.Fatal("discovery ignored cancellation")
+	}
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("%v %v", nodes, err)
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if len(c.pending) != 0 {
+		t.Fatal("pending discovery leaked")
+	}
+}
+
+func TestMarshalFailureReleasesAndRetiresTID(t *testing.T) {
+	c, _ := testClient(t, nil)
+	props := make([]Property, 6)
+	for i := range props {
+		props[i] = Property{EPC: EPC(0x80 + i), EDT: make([]byte, 255)}
+	}
+	_, err := c.Node(peer).Object(acEOJ).SetC(context.Background(), props...)
+	if !errors.Is(err, ErrInvalid) {
+		t.Fatalf("oversized frame: %v", err)
+	}
+	var unknown *SettingUnknownError
+	if errors.As(err, &unknown) {
+		t.Fatal("unsent request must not be setting unknown")
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if len(c.pending) != 0 || len(c.retired) != 1 {
+		t.Fatalf("pending=%d retired=%d", len(c.pending), len(c.retired))
+	}
+	for _, until := range c.retired {
+		if !until.After(time.Now()) {
+			t.Fatal("released TID not quarantined")
+		}
+	}
+}
