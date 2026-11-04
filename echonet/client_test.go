@@ -452,3 +452,65 @@ func TestCancelBlockedSend(t *testing.T) {
 		t.Fatal("send ignored cancellation")
 	}
 }
+
+func TestCloseInterruptsBlockedSend(t *testing.T) {
+	f := &blockedTransport{fakeTransport: newFake(), started: make(chan struct{}, 1)}
+	c := newClient(f, netip.Addr{}, time.Minute)
+	t.Cleanup(func() { _ = c.Close() })
+	result := make(chan error, 1)
+	go func() { _, err := c.Node(peer).Object(acEOJ).Get(context.Background(), 0x80); result <- err }()
+	select {
+	case <-f.started:
+	case <-time.After(time.Second):
+		t.Fatal("send did not start")
+	}
+	if err := c.Close(); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case err := <-result:
+		if !errors.Is(err, ErrClosed) {
+			t.Fatal(err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("Close did not interrupt send")
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if len(c.pending) != 0 {
+		t.Fatal("pending send leaked after Close")
+	}
+}
+
+func TestSetCancellationAfterSendIsUnknownWithoutRetry(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	c, f := testClient(t, func(req frame, _ netip.Addr) {
+		if req.esv == SetC {
+			cancel()
+		}
+	})
+	_, err := c.Node(peer).Object(acEOJ).SetC(ctx, Property{0x80, []byte{0x30}})
+	var unknown *SettingUnknownError
+	if !errors.As(err, &unknown) || !errors.Is(err, context.Canceled) {
+		t.Fatalf("sent setting must be unknown after cancellation: %v", err)
+	}
+	attempts := 0
+	for {
+		select {
+		case p := <-f.outgoing:
+			req, err := parseFrame(p.data)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if req.esv == SetC {
+				attempts++
+			}
+		default:
+			if attempts != 1 {
+				t.Fatalf("setting attempts: %d", attempts)
+			}
+			return
+		}
+	}
+}
