@@ -12,6 +12,7 @@ import (
 
 	"github.com/otknoy/echonet-lite/aircon"
 	"github.com/otknoy/echonet-lite/echonet"
+	"github.com/otknoy/echonet-lite/internal/netutil"
 	"go.yaml.in/yaml/v3"
 )
 
@@ -45,7 +46,7 @@ func DefaultPath() (string, error) {
 // ParseTarget applies the same validation to configured and explicit targets.
 func ParseTarget(target Target) (netip.Addr, echonet.EOJ, error) {
 	address, err := netip.ParseAddr(target.Host)
-	if err != nil || !address.Is4() || address.IsUnspecified() || address.IsMulticast() || address == netip.MustParseAddr("255.255.255.255") {
+	if err != nil || !netutil.IsUnicastIPv4(address) {
 		return netip.Addr{}, echonet.EOJ{}, fmt.Errorf("host must be a unicast IPv4 address")
 	}
 	eoj, err := echonet.ParseEOJ(target.EOJ)
