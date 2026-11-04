@@ -1,6 +1,10 @@
 package echonet
 
-import "sort"
+import (
+	"context"
+	"net/netip"
+	"sort"
+)
 
 // The prototype exposes only properties it can answer. It has no assigned manufacturer code.
 func (c *Client) localProperties(eoj EOJ) map[EPC][]byte {
@@ -57,7 +61,7 @@ func (c *Client) announce() {
 	f := frame{seoj: nodeEOJ, deoj: nodeEOJ, esv: INF, properties: []Property{{0xd5, []byte{1, 0x05, 0xff, 1}}}}
 	b, err := f.marshal()
 	if err == nil {
-		_ = c.transport.WritePacket(b, multicast)
+		_ = c.writeLocal(b, multicast)
 	}
 }
 func (c *Client) replyLocal(req localRequest) {
@@ -81,7 +85,7 @@ func (c *Client) replyLocal(req localRequest) {
 			out.esv = 0x5e
 			b, err := out.marshal()
 			if err == nil {
-				_ = c.transport.WritePacket(b, req.address)
+				_ = c.writeLocal(b, req.address)
 			}
 			continue
 		}
@@ -133,7 +137,13 @@ func (c *Client) replyLocal(req localRequest) {
 		}
 		b, err := out.marshal()
 		if err == nil {
-			_ = c.transport.WritePacket(b, req.address)
+			_ = c.writeLocal(b, req.address)
 		}
 	}
+}
+
+func (c *Client) writeLocal(b []byte, to netip.Addr) error {
+	ctx, cancel := context.WithTimeout(context.Background(), c.timeout)
+	defer cancel()
+	return c.transport.WritePacket(ctx, b, to)
 }
