@@ -57,7 +57,7 @@ func TestUDPTransportLoopback(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	transmit := &udpTransport{conn: sender, index: iface.Index, source: [4]byte{127, 0, 0, 2}}
+	transmit := &udpTransport{conn: sender, sendGate: make(chan struct{}, 1), index: iface.Index, source: [4]byte{127, 0, 0, 2}}
 	receive := &udpTransport{conn: server, index: iface.Index, source: [4]byte{127, 0, 0, 1}}
 	if err = server.SetReadDeadline(time.Now().Add(time.Second)); err != nil {
 		t.Fatal(err)
@@ -133,8 +133,7 @@ func TestReceiveWithoutPinnedInterface(t *testing.T) {
 }
 
 func TestSendGateCancellation(t *testing.T) {
-	u := &udpTransport{}
-	u.sendOnce.Do(func() { u.sendGate = make(chan struct{}, 1) })
+	u := &udpTransport{sendGate: make(chan struct{}, 1)}
 	u.sendGate <- struct{}{}
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
 	defer cancel()
