@@ -33,8 +33,10 @@ func (f *fakeTransport) ReadPacket() ([]byte, netip.Addr, error) {
 		return nil, netip.Addr{}, ErrClosed
 	}
 }
-func (f *fakeTransport) WritePacket(b []byte, to netip.Addr) error {
+func (f *fakeTransport) WritePacket(ctx context.Context, b []byte, to netip.Addr) error {
 	select {
+	case <-ctx.Done():
+		return ctx.Err()
 	case <-f.done:
 		return ErrClosed
 	default:
@@ -379,5 +381,74 @@ func TestTruncatedSNAIsReturned(t *testing.T) {
 	var service *ServiceError
 	if !errors.As(err, &service) || r == nil || len(r.Properties) != 1 {
 		t.Fatalf("%+v %v", r, err)
+	}
+}
+
+type blockedTransport struct {
+	*fakeTransport
+	started chan struct{}
+}
+
+func (f *blockedTransport) WritePacket(ctx context.Context, _ []byte, _ netip.Addr) error {
+	select {
+	case f.started <- struct{}{}:
+	default:
+	}
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-f.done:
+		return ErrClosed
+	}
+}
+
+func TestBlockedSend(t *testing.T) {
+	for _, operation := range []string{"get", "set", "discover"} {
+		t.Run(operation, func(t *testing.T) {
+			f := &blockedTransport{fakeTransport: newFake(), started: make(chan struct{}, 1)}
+			c := newClient(f, netip.Addr{}, 20*time.Millisecond)
+			defer func() { _ = c.Close() }()
+			var err error
+			switch operation {
+			case "get":
+				_, err = c.Node(peer).Object(acEOJ).Get(context.Background(), 0x80)
+			case "set":
+				_, err = c.Node(peer).Object(acEOJ).SetC(context.Background(), Property{0x80, []byte{0x30}})
+			case "discover":
+				_, err = c.Discover(context.Background())
+			}
+			if !errors.Is(err, context.DeadlineExceeded) {
+				t.Fatalf("blocked send: %v", err)
+			}
+			var unknown *SettingUnknownError
+			if errors.As(err, &unknown) {
+				t.Fatal("failed send reported as acknowledged transmission")
+			}
+			c.mu.Lock()
+			defer c.mu.Unlock()
+			if len(c.pending) != 0 {
+				t.Fatal("pending request leaked")
+			}
+		})
+	}
+}
+
+func TestCancelBlockedSend(t *testing.T) {
+	f := &blockedTransport{fakeTransport: newFake(), started: make(chan struct{}, 1)}
+	c := newClient(f, netip.Addr{}, time.Second)
+	defer func() { _ = c.Close() }()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	result := make(chan error, 1)
+	go func() { _, err := c.Node(peer).Object(acEOJ).Get(ctx, 0x80); result <- err }()
+	<-f.started
+	cancel()
+	select {
+	case err := <-result:
+		if !errors.Is(err, context.Canceled) {
+			t.Fatal(err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("send ignored cancellation")
 	}
 }

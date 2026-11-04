@@ -3,18 +3,22 @@
 package echonet
 
 import (
+	"context"
 	"encoding/binary"
 	"fmt"
 	"net"
 	"net/netip"
 	"sync"
 	"syscall"
+	"time"
 	"unsafe"
 )
 
 // udpTransport uses one socket for unicast and multicast. No port reuse is enabled.
 type udpTransport struct {
 	conn            *net.UDPConn
+	sendOnce        sync.Once
+	sendGate        chan struct{}
 	index           int
 	source          [4]byte
 	discoveryOnce   sync.Once
@@ -185,12 +189,45 @@ func (u *udpTransport) outgoingControl(to netip.Addr) ([]byte, error) {
 	copy(data[4:8], source[:])
 	return oob, nil
 }
-func (u *udpTransport) WritePacket(b []byte, to netip.Addr) error {
+func (u *udpTransport) WritePacket(ctx context.Context, b []byte, to netip.Addr) error {
+	u.sendOnce.Do(func() { u.sendGate = make(chan struct{}, 1) })
+	select {
+	case u.sendGate <- struct{}{}:
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+	defer func() { <-u.sendGate }()
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+
 	oob, err := u.outgoingControl(to)
 	if err != nil {
 		return err
 	}
+	// Only the holder of sendGate changes the shared write deadline.
+	deadline, _ := ctx.Deadline()
+	if err := u.conn.SetWriteDeadline(deadline); err != nil {
+		return err
+	}
+	finished := make(chan struct{})
+	stop := context.AfterFunc(ctx, func() {
+		_ = u.conn.SetWriteDeadline(time.Now())
+		close(finished)
+	})
+	defer func() {
+		if !stop() {
+			<-finished
+		}
+		_ = u.conn.SetWriteDeadline(time.Time{})
+	}()
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	_, _, err = u.conn.WriteMsgUDPAddrPort(b, oob, netip.AddrPortFrom(to, 3610))
+	if err != nil && ctx.Err() != nil {
+		return ctx.Err()
+	}
 	return err
 }
 func (u *udpTransport) Close() error { return u.conn.Close() }
