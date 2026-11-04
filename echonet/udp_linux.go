@@ -17,7 +17,6 @@ import (
 // udpTransport uses one socket for unicast and multicast. No port reuse is enabled.
 type udpTransport struct {
 	conn            *net.UDPConn
-	sendOnce        sync.Once
 	sendGate        chan struct{}
 	index           int
 	source          [4]byte
@@ -80,7 +79,7 @@ func openUDP(name string) (*udpTransport, netip.Addr, error) {
 	if err != nil {
 		return nil, ip, err
 	}
-	u := &udpTransport{conn: conn}
+	u := &udpTransport{conn: conn, sendGate: make(chan struct{}, 1)}
 	if iface != nil {
 		u.index = iface.Index
 		u.source = ip.As4()
@@ -190,7 +189,6 @@ func (u *udpTransport) outgoingControl(to netip.Addr) ([]byte, error) {
 	return oob, nil
 }
 func (u *udpTransport) WritePacket(ctx context.Context, b []byte, to netip.Addr) error {
-	u.sendOnce.Do(func() { u.sendGate = make(chan struct{}, 1) })
 	select {
 	case u.sendGate <- struct{}{}:
 	case <-ctx.Done():
@@ -205,11 +203,8 @@ func (u *udpTransport) WritePacket(ctx context.Context, b []byte, to netip.Addr)
 	if err != nil {
 		return err
 	}
-	// Only the holder of sendGate changes the shared write deadline.
-	deadline, _ := ctx.Deadline()
-	if err := u.conn.SetWriteDeadline(deadline); err != nil {
-		return err
-	}
+	// Context cancellation includes deadline expiry. Only the gate holder
+	// changes the socket deadline, and joins the callback before releasing it.
 	finished := make(chan struct{})
 	stop := context.AfterFunc(ctx, func() {
 		_ = u.conn.SetWriteDeadline(time.Now())
