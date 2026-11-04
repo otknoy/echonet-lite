@@ -171,7 +171,7 @@ func loadAirconConfig(cmd *cobra.Command, o *airconOptions) (config.Config, erro
 
 func runAirconOperation(cmd *cobra.Command, open opener, o *airconOptions, op operation) error {
 	for _, name := range o.targets {
-		if strings.TrimSpace(name) == "" {
+		if !config.ValidName(name) {
 			return fmt.Errorf("target name must not be empty")
 		}
 	}
