@@ -452,3 +452,38 @@ func TestCancelBlockedSend(t *testing.T) {
 		t.Fatal("send ignored cancellation")
 	}
 }
+
+func TestDiscoveryCancellationReleasesPending(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	c, f := testClient(t, nil)
+	finished := make(chan struct{})
+	var nodes []DiscoveredNode
+	var err error
+	go func() { nodes, err = c.Discover(ctx); close(finished) }()
+	var request frame
+	for {
+		p := <-f.outgoing
+		request, _ = parseFrame(p.data)
+		if request.esv == Get {
+			break
+		}
+	}
+	f.inject(reply(request, []Property{{0xd6, []byte{1, 1, 0x30, 1}}}, GetRes), peer)
+	// Cancellation may race collection, so only assert the cancellation contract;
+	// the normal timeout/deduplication test covers the collected snapshot.
+	cancel()
+	select {
+	case <-finished:
+	case <-time.After(time.Second):
+		t.Fatal("discovery ignored cancellation")
+	}
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("%v %v", nodes, err)
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if len(c.pending) != 0 {
+		t.Fatal("pending discovery leaked")
+	}
+}
