@@ -56,7 +56,7 @@ func (c *Client) receive() {
 		if err != nil {
 			continue
 		}
-		if f.esv == Get || f.esv == SetC || f.esv == 0x60 || f.esv == 0x63 || f.esv == INFC || f.esv == 0x6e {
+		if f.esv == Get || f.esv == SetC || f.esv == SetI || f.esv == INFReq || f.esv == INFC || f.esv == SetGet {
 			select {
 			case c.localRequests <- localRequest{f, from}:
 			default:
