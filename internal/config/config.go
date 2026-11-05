@@ -69,14 +69,14 @@ func Load(path string) (*Document, error) {
 	}
 	doc := &Document{path: resolved, mode: info.Mode().Perm()}
 	// Load requires exactly one document and retains its comments and styles.
-	if err = yaml.Load(data, &doc.tree, yaml.WithV3Defaults()); err != nil {
+	if err = yaml.Load(data, &doc.tree); err != nil {
 		return nil, fmt.Errorf("config %s: %w", path, err)
 	}
 	if len(doc.tree.Content) != 1 || doc.tree.Content[0].Kind != yaml.MappingNode {
 		return nil, fmt.Errorf("config %s: expected a YAML mapping", path)
 	}
 	// Node.Load has independent options; enforce known fields when converting.
-	if err = doc.tree.Load(&doc.Config, yaml.WithV3Defaults(), yaml.WithKnownFields()); err != nil {
+	if err = doc.tree.Load(&doc.Config, yaml.WithKnownFields()); err != nil {
 		return nil, fmt.Errorf("config %s: %w", path, err)
 	}
 	if err = doc.Config.Validate(); err != nil {
@@ -90,12 +90,12 @@ func (d *Document) Use(name string) error {
 		return err
 	}
 	// Clone the tree through YAML to leave the loaded document unchanged on failure.
-	data, err := yaml.Dump(&d.tree, yaml.WithV3Defaults(), yaml.WithLineWidth(-1))
+	data, err := yaml.Dump(&d.tree)
 	if err != nil {
 		return err
 	}
 	var tree yaml.Node
-	if err = yaml.Load(data, &tree, yaml.WithV3Defaults()); err != nil {
+	if err = yaml.Load(data, &tree); err != nil {
 		return err
 	}
 	root := tree.Content[0]
@@ -115,7 +115,7 @@ func (d *Document) Use(name string) error {
 	if !found {
 		root.Content = append(root.Content, &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: "current_target"}, &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: name})
 	}
-	data, err = yaml.Dump(&tree, yaml.WithV3Defaults(), yaml.WithIndent(2))
+	data, err = yaml.Dump(&tree)
 	if err != nil {
 		return err
 	}

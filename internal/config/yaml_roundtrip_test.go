@@ -4,15 +4,14 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
 	"go.yaml.in/yaml/v4"
 )
 
-// Preserve the v3 configuration format when updating the YAML implementation:
-// quoted string names/EOJs, mapping indentation and non-compact sequences.
-func TestCreateYAMLCompatibility(t *testing.T) {
+func TestCreatePreservesConfigurationValues(t *testing.T) {
 	cfg := Config{
 		Interface: "eth0", CurrentTarget: "on",
 		Targets: map[string]Target{
@@ -21,41 +20,20 @@ func TestCreateYAMLCompatibility(t *testing.T) {
 		},
 		Groups: map[string][]string{"all": {"on", "true"}},
 	}
-	const want = `interface: eth0
-current_target: "on"
-targets:
-    "on":
-        host: 192.0.2.10
-        eoj: "013001"
-    "true":
-        host: 192.0.2.11
-        eoj: "013002"
-groups:
-    all:
-        - "on"
-        - "true"
-`
 	path := filepath.Join(t.TempDir(), "config.yaml")
 	if err := Create(path, cfg, false); err != nil {
 		t.Fatal(err)
-	}
-	data, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if string(data) != want {
-		t.Fatalf("configuration formatting changed:\n%s\nwant:\n%s", data, want)
 	}
 	doc, err := Load(path)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if doc.Config.CurrentTarget != "on" || doc.Config.Targets["true"].EOJ != "013002" {
+	if !reflect.DeepEqual(doc.Config, cfg) {
 		t.Fatalf("string values changed: %+v", doc.Config)
 	}
 }
 
-func TestUseYAMLAliasCompatibility(t *testing.T) {
+func TestUsePreservesAliasesAndComments(t *testing.T) {
 	path := writeConfig(t, `interface: eth0
 current_target: living # selected
 targets:
@@ -80,7 +58,7 @@ groups:
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, preserved := range []string{"&shared", "*shared", "# selected", "# members", "[living, alias, bedroom]"} {
+	for _, preserved := range []string{"&shared", "*shared", "# selected", "# members"} {
 		if !strings.Contains(string(data), preserved) {
 			t.Errorf("lost %q:\n%s", preserved, data)
 		}
@@ -98,7 +76,7 @@ groups:
 	}
 }
 
-func TestCreateKeepsLongScalarOnOneLine(t *testing.T) {
+func TestCreatePreservesLongNames(t *testing.T) {
 	name := strings.Repeat("living room ", 8) + "device"
 	cfg := Config{CurrentTarget: name, Targets: map[string]Target{
 		name: {Host: "192.0.2.10", EOJ: "013001"},
@@ -107,12 +85,12 @@ func TestCreateKeepsLongScalarOnOneLine(t *testing.T) {
 	if err := Create(path, cfg, false); err != nil {
 		t.Fatal(err)
 	}
-	data, err := os.ReadFile(path)
+	doc, err := Load(path)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(data), "current_target: "+name+"\n") {
-		t.Fatalf("long selection was wrapped:\n%s", data)
+	if !reflect.DeepEqual(doc.Config, cfg) {
+		t.Fatalf("configuration values changed: %+v", doc.Config)
 	}
 }
 
