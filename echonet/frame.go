@@ -13,14 +13,15 @@ type frame struct {
 	properties, readProperties []Property
 }
 
-func setGet(esv ESV) bool { return esv == 0x6e || esv == 0x7e || esv == 0x5e }
+func setGet(esv ESV) bool { return esv == SetGet || esv == SetGetRes || esv == SetGetSNA }
+
 func (f frame) marshal() ([]byte, error) {
 	b := []byte{0x10, 0x81, byte(f.tid >> 8), byte(f.tid)}
 	b = append(b, f.seoj[:]...)
 	b = append(b, f.deoj[:]...)
 	b = append(b, byte(f.esv))
 	appendGroup := func(ps []Property) error {
-		if (len(ps) < 1 && f.esv != 0x5e) || len(ps) > 255 {
+		if (len(ps) < 1 && f.esv != SetGetSNA) || len(ps) > 255 {
 			return fmt.Errorf("%w: property count", ErrInvalid)
 		}
 		b = append(b, byte(len(ps)))
@@ -46,6 +47,7 @@ func (f frame) marshal() ([]byte, error) {
 	}
 	return b, nil
 }
+
 func parseFrame(b []byte) (frame, error) {
 	var f frame
 	if len(b) < 12 || b[0] != 0x10 || b[1] != 0x81 {
@@ -62,7 +64,7 @@ func parseFrame(b []byte) (frame, error) {
 		}
 		n := int(b[pos])
 		pos++
-		if n == 0 && f.esv != 0x5e {
+		if n == 0 && f.esv != SetGetSNA {
 			return nil, fmt.Errorf("zero OPC")
 		}
 		ps := make([]Property, 0, n)

@@ -10,8 +10,10 @@ import (
 
 type EOJ [3]byte
 
-func (e EOJ) String() string               { return hex.EncodeToString(e[:]) }
+func (e EOJ) String() string { return hex.EncodeToString(e[:]) }
+
 func (e EOJ) MarshalText() ([]byte, error) { return []byte(e.String()), nil }
+
 func ParseEOJ(s string) (EOJ, error) {
 	var e EOJ
 	b, err := hex.DecodeString(s)
@@ -25,17 +27,28 @@ func ParseEOJ(s string) (EOJ, error) {
 type EPC byte
 type ESV byte
 
+// ESV codes follow ECHONET Lite Ver.1.14, Part 2, Tables 3-9 to 3-11.
 const (
-	SetC    ESV = 0x61
-	Get     ESV = 0x62
-	SetRes  ESV = 0x71
-	GetRes  ESV = 0x72
-	SetCSNA ESV = 0x51
-	GetSNA  ESV = 0x52
-	INF     ESV = 0x73
-	INFC    ESV = 0x74
-	INFCRes ESV = 0x7a
+	SetI   ESV = 0x60
+	SetC   ESV = 0x61
+	Get    ESV = 0x62
+	INFReq ESV = 0x63
+	SetGet ESV = 0x6e
+
+	SetRes    ESV = 0x71
+	GetRes    ESV = 0x72
+	INF       ESV = 0x73
+	INFC      ESV = 0x74
+	INFCRes   ESV = 0x7a
+	SetGetRes ESV = 0x7e
+
+	SetISNA   ESV = 0x50
+	SetCSNA   ESV = 0x51
+	GetSNA    ESV = 0x52
+	INFSNA    ESV = 0x53
+	SetGetSNA ESV = 0x5e
 )
+
 const (
 	AnnouncementPropertyMap EPC = 0x9d
 	SetPropertyMap          EPC = 0x9e
@@ -88,6 +101,7 @@ type SettingUnknownError struct{ Cause error }
 func (e *SettingUnknownError) Error() string {
 	return "echonet: setting result unknown: " + e.Cause.Error()
 }
+
 func (e *SettingUnknownError) Unwrap() error { return e.Cause }
 
 type Node struct {
@@ -95,7 +109,8 @@ type Node struct {
 	address netip.Addr
 }
 
-func (n *Node) Address() netip.Addr    { return n.address }
+func (n *Node) Address() netip.Addr { return n.address }
+
 func (n *Node) Object(eoj EOJ) *Object { return &Object{node: n, eoj: eoj} }
 
 type Object struct {
@@ -103,7 +118,8 @@ type Object struct {
 	eoj  EOJ
 }
 
-func (o *Object) EOJ() EOJ            { return o.eoj }
+func (o *Object) EOJ() EOJ { return o.eoj }
+
 func (o *Object) Address() netip.Addr { return o.node.address }
 
 // DiscoveredNode is a snapshot; addresses are not persistent device identities.

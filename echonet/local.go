@@ -42,6 +42,7 @@ func (c *Client) localProperties(eoj EOJ) map[EPC][]byte {
 	common[0x9f] = getMap
 	return common
 }
+
 func (c *Client) serveLocal() {
 	defer c.workers.Done()
 	// Announce the controller instance after the receiver has started.
@@ -57,6 +58,7 @@ func (c *Client) serveLocal() {
 		}
 	}
 }
+
 func (c *Client) announce() {
 	f := frame{seoj: nodeEOJ, deoj: nodeEOJ, esv: INF, properties: []Property{{0xd5, []byte{1, 0x05, 0xff, 1}}}}
 	b, err := f.marshal()
@@ -64,78 +66,101 @@ func (c *Client) announce() {
 		_ = c.writeLocal(b, multicast)
 	}
 }
-func (c *Client) replyLocal(req localRequest) {
-	f := req.frame
-	targets := []EOJ{f.deoj}
-	if f.deoj[2] == 0 {
-		targets = nil
-		for _, e := range []EOJ{nodeEOJ, controllerEOJ} {
-			if e[0] == f.deoj[0] && e[1] == f.deoj[1] {
-				targets = append(targets, e)
-			}
+
+// localTargets resolves a class-wide EOJ to the concrete local objects.
+func localTargets(destination EOJ) []EOJ {
+	if destination[2] != 0 {
+		return []EOJ{destination}
+	}
+	var targets []EOJ
+	for _, eoj := range []EOJ{nodeEOJ, controllerEOJ} {
+		if eoj[0] == destination[0] && eoj[1] == destination[1] {
+			targets = append(targets, eoj)
 		}
 	}
-	for _, target := range targets {
-		props := c.localProperties(target)
-		if props == nil {
+	return targets
+}
+
+// validLocalRequest checks service-specific EDT lengths. parseFrame validates
+// the frame structure before a request reaches the local service.
+func validLocalRequest(request frame) bool {
+	switch request.esv {
+	case Get, INFReq:
+		for _, p := range request.properties {
+			if len(p.EDT) != 0 {
+				return false
+			}
+		}
+	case SetI, SetC:
+		for _, p := range request.properties {
+			if len(p.EDT) == 0 {
+				return false
+			}
+		}
+	case INFC, SetGet:
+		// SetGet is rejected without executing either property group.
+	default:
+		return false
+	}
+	return true
+}
+
+// localResponse builds a response without I/O or modifying the request or
+// properties. A false result means the local service must not send a response.
+func localResponse(request frame, target EOJ, properties map[EPC][]byte) (frame, bool) {
+	if properties == nil || !validLocalRequest(request) {
+		return frame{}, false
+	}
+	response := frame{tid: request.tid, seoj: target, deoj: request.seoj}
+	switch request.esv {
+	case Get, INFReq:
+		unavailable := false
+		for _, p := range request.properties {
+			value, supported := properties[p.EPC]
+			if request.esv == INFReq && target == nodeEOJ && p.EPC == 0xd5 {
+				value, supported = []byte{1, 0x05, 0xff, 1}, true
+			}
+			if !supported {
+				unavailable = true
+			}
+			response.properties = append(response.properties, Property{p.EPC, value})
+		}
+		if request.esv == Get {
+			response.esv = GetRes
+			if unavailable {
+				response.esv = GetSNA
+			}
+		} else {
+			response.esv = INF
+			if unavailable {
+				response.esv = INFSNA
+			}
+		}
+	case SetI, SetC:
+		// All exposed properties are read-only in this prototype.
+		response.properties = append([]Property(nil), request.properties...)
+		response.esv = SetCSNA
+		if request.esv == SetI {
+			response.esv = SetISNA
+		}
+	case SetGet:
+		response.esv = SetGetSNA
+	case INFC:
+		response.esv = INFCRes
+		for _, p := range request.properties {
+			response.properties = append(response.properties, Property{EPC: p.EPC})
+		}
+	}
+	return response, true
+}
+
+func (c *Client) replyLocal(req localRequest) {
+	for _, target := range localTargets(req.frame.deoj) {
+		response, ok := localResponse(req.frame, target, c.localProperties(target))
+		if !ok {
 			continue
 		}
-		out := frame{tid: f.tid, seoj: target, deoj: f.seoj, esv: GetRes}
-		if f.esv == 0x6e {
-			out.esv = 0x5e
-			b, err := out.marshal()
-			if err == nil {
-				_ = c.writeLocal(b, req.address)
-			}
-			continue
-		}
-		if f.esv == 0x63 && target == nodeEOJ {
-			props[0xd5] = []byte{1, 0x05, 0xff, 1}
-		}
-		failed := false
-		for _, p := range f.properties {
-			switch f.esv {
-			case Get, 0x63:
-				if len(p.EDT) != 0 {
-					return
-				}
-				v, ok := props[p.EPC]
-				if !ok {
-					failed = true
-				}
-				out.properties = append(out.properties, Property{p.EPC, v})
-			case SetC, 0x60:
-				// All exposed properties are read-only in this prototype.
-				if len(p.EDT) == 0 {
-					return
-				}
-				failed = true
-				out.properties = append(out.properties, p)
-			case INFC:
-				out.properties = append(out.properties, Property{EPC: p.EPC})
-			}
-		}
-		switch f.esv {
-		case Get:
-			if failed {
-				out.esv = GetSNA
-			}
-		case 0x63:
-			if failed {
-				out.esv = 0x53
-			} else {
-				out.esv = INF
-			}
-		case SetC:
-			out.esv = SetCSNA
-		case 0x60:
-			out.esv = 0x50
-		case INFC:
-			out.esv = INFCRes
-		default:
-			continue
-		}
-		b, err := out.marshal()
+		b, err := response.marshal()
 		if err == nil {
 			_ = c.writeLocal(b, req.address)
 		}
