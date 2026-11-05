@@ -13,7 +13,7 @@ import (
 	"github.com/otknoy/echonet-lite/aircon"
 	"github.com/otknoy/echonet-lite/echonet"
 	"github.com/otknoy/echonet-lite/internal/netutil"
-	"go.yaml.in/yaml/v3"
+	"go.yaml.in/yaml/v4"
 )
 
 type Target struct {
@@ -55,6 +55,7 @@ func ParseTarget(target Target) (netip.Addr, echonet.EOJ, error) {
 	}
 	return address, eoj, nil
 }
+
 func Load(path string) (*Document, error) {
 	// Resolve a symlink before replacement so saving does not replace the link itself.
 	resolved, err := filepath.EvalSymlinks(path)
@@ -137,6 +138,7 @@ func (d *Document) Use(name string) error {
 	d.Config.CurrentTarget = name
 	return nil
 }
+
 func atomicWrite(path string, data []byte, mode os.FileMode, publish func(string, string) error) error {
 	file, err := os.CreateTemp(filepath.Dir(path), ".echonet-config-*")
 	if err != nil {
