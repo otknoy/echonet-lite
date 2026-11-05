@@ -34,7 +34,7 @@ func Create(path string, cfg Config, force bool) error {
 	if err := cfg.Validate(); err != nil {
 		return err
 	}
-	data, err := yaml.Marshal(cfg)
+	data, err := yaml.Dump(cfg, yaml.WithV3Defaults(), yaml.WithLineWidth(-1))
 	if err != nil {
 		return err
 	}

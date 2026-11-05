@@ -1,10 +1,13 @@
 package config
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"go.yaml.in/yaml/v4"
 )
 
 // Preserve the v3 configuration format when updating the YAML implementation:
@@ -92,5 +95,56 @@ groups:
 	}
 	if len(targets) != 2 || targets[0].Name != "living" || targets[1].Name != "bedroom" {
 		t.Fatalf("aliased targets changed: %+v", targets)
+	}
+}
+
+func TestCreateKeepsLongScalarOnOneLine(t *testing.T) {
+	name := strings.Repeat("living room ", 8) + "device"
+	cfg := Config{CurrentTarget: name, Targets: map[string]Target{
+		name: {Host: "192.0.2.10", EOJ: "013001"},
+	}}
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	if err := Create(path, cfg, false); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(data), "current_target: "+name+"\n") {
+		t.Fatalf("long selection was wrapped:\n%s", data)
+	}
+}
+
+func TestLoadRejectsTrailingYAMLDocuments(t *testing.T) {
+	for name, trailing := range map[string]string{
+		"empty document":        "---\n",
+		"another configuration": "---\ninterface: eth1\n",
+		"malformed document":    "---\ntargets: [\n",
+	} {
+		t.Run(name, func(t *testing.T) {
+			if _, err := Load(writeConfig(t, sample+trailing)); err == nil {
+				t.Fatal("accepted trailing YAML document")
+			}
+		})
+	}
+}
+
+func TestLoadPreservesStructuredYAMLErrors(t *testing.T) {
+	for name, data := range map[string]string{
+		"unknown field":    sample + "unexpected: true\n",
+		"wrong field type": strings.Replace(sample, "interface: eth0", "interface: [eth0]", 1),
+	} {
+		t.Run(name, func(t *testing.T) {
+			path := writeConfig(t, data)
+			_, err := Load(path)
+			var details *yaml.LoadErrors
+			if !errors.As(err, &details) || len(details.Errors) == 0 {
+				t.Fatalf("structured YAML error was lost: %v", err)
+			}
+			if !strings.Contains(err.Error(), path) {
+				t.Fatalf("config path was lost: %v", err)
+			}
+		})
 	}
 }
