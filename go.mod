@@ -4,7 +4,8 @@ go 1.25.0
 
 require (
 	github.com/spf13/cobra v1.10.2
-	go.yaml.in/yaml/v3 v3.0.6
+	go.yaml.in/yaml/v3 v3.0.4
+	go.yaml.in/yaml/v4 v4.0.0
 )
 
 require (
