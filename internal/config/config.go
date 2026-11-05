@@ -2,10 +2,7 @@
 package config
 
 import (
-	"bytes"
-	"errors"
 	"fmt"
-	"io"
 	"net/netip"
 	"os"
 	"path/filepath"
@@ -71,20 +68,16 @@ func Load(path string) (*Document, error) {
 		return nil, err
 	}
 	doc := &Document{path: resolved, mode: info.Mode().Perm()}
-	decoder := yaml.NewDecoder(bytes.NewReader(data))
-	decoder.KnownFields(true)
-	if err = decoder.Decode(&doc.Config); err != nil {
+	// Load requires exactly one document and retains its comments and styles.
+	if err = yaml.Load(data, &doc.tree); err != nil {
 		return nil, fmt.Errorf("config %s: %w", path, err)
-	}
-	var extra yaml.Node
-	if err = decoder.Decode(&extra); !errors.Is(err, io.EOF) {
-		return nil, fmt.Errorf("config %s: expected one YAML document", path)
-	}
-	if err = yaml.Unmarshal(data, &doc.tree); err != nil {
-		return nil, err
 	}
 	if len(doc.tree.Content) != 1 || doc.tree.Content[0].Kind != yaml.MappingNode {
 		return nil, fmt.Errorf("config %s: expected a YAML mapping", path)
+	}
+	// Node.Load has independent options; enforce known fields when converting.
+	if err = doc.tree.Load(&doc.Config, yaml.WithKnownFields()); err != nil {
+		return nil, fmt.Errorf("config %s: %w", path, err)
 	}
 	if err = doc.Config.Validate(); err != nil {
 		return nil, err
@@ -97,12 +90,12 @@ func (d *Document) Use(name string) error {
 		return err
 	}
 	// Clone the tree through YAML to leave the loaded document unchanged on failure.
-	data, err := yaml.Marshal(&d.tree)
+	data, err := yaml.Dump(&d.tree)
 	if err != nil {
 		return err
 	}
 	var tree yaml.Node
-	if err = yaml.Unmarshal(data, &tree); err != nil {
+	if err = yaml.Load(data, &tree); err != nil {
 		return err
 	}
 	root := tree.Content[0]
@@ -122,16 +115,11 @@ func (d *Document) Use(name string) error {
 	if !found {
 		root.Content = append(root.Content, &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: "current_target"}, &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: name})
 	}
-	var output bytes.Buffer
-	encoder := yaml.NewEncoder(&output)
-	encoder.SetIndent(2)
-	if err = encoder.Encode(&tree); err != nil {
+	data, err = yaml.Dump(&tree)
+	if err != nil {
 		return err
 	}
-	if err = encoder.Close(); err != nil {
-		return err
-	}
-	if err = atomicWrite(d.path, output.Bytes(), d.mode, os.Rename); err != nil {
+	if err = atomicWrite(d.path, data, d.mode, os.Rename); err != nil {
 		return err
 	}
 	d.tree = tree
