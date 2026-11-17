@@ -61,6 +61,7 @@ func execute(ctx context.Context, args []string, input io.Reader, out, diagnosti
 func newRootCommand(input io.Reader, out, diagnostics io.Writer, open opener, interfaces interfaceLister) *cobra.Command {
 	root := &cobra.Command{
 		Use: "echonet", Short: "Control ECHONET Lite air conditioners",
+		Version:       buildVersion(),
 		SilenceErrors: true, SilenceUsage: true,
 		CompletionOptions: cobra.CompletionOptions{DisableDefaultCmd: true},
 		RunE: func(cmd *cobra.Command, args []string) error {
