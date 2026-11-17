@@ -139,7 +139,7 @@ type failingWriter struct{}
 func (failingWriter) Write([]byte) (int, error) { return 0, errors.New("output unavailable") }
 
 func TestHelpOutputFailure(t *testing.T) {
-	for _, args := range [][]string{nil, {"--help"}} {
+	for _, args := range [][]string{nil, {"--help"}, {"--version"}, {"-v"}} {
 		var diagnostics bytes.Buffer
 		code := Run(context.Background(), args, failingWriter{}, &diagnostics)
 		if code != 1 || strings.Count(diagnostics.String(), "output unavailable") != 1 {
